@@ -25,7 +25,7 @@ import time
 from consultant import Consultant
 from model_client import ModelClient, ProviderError, Settings
 from retrieval import HybridIndex, SearchIndex, load_archive
-from solution import read_questions
+from solution import EMBED_BUILD_SECONDS, read_questions
 
 DEFAULT_DATA = Path('data/org')
 RUN_BUDGET = 1100.0
@@ -93,10 +93,12 @@ def static_checks(answer: str) -> dict:
 
 
 def parse_verdict(text: str) -> str | None:
-    """Exactly one label must be present; none of the labels is a substring of another."""
-    visible = strip_think(text).replace(' ', '').replace('＞', '>')
-    found = [v for v in VERDICTS if v in visible]
-    return found[0] if len(found) == 1 else None
+    """The whole visible reply must be one label, optionally after 'Метка:'; anything else is invalid
+    ('NOT A>B', 'A>B is invalid', two labels) so a malformed reply is never counted as a verdict."""
+    visible = strip_think(text).replace('＞', '>').strip().strip('.')
+    visible = re.sub(r'^(?:метка|label|ответ)\s*:\s*', '', visible, flags=re.I)
+    visible = re.sub(r'\s+', '', visible).strip('`*"\'')
+    return visible if visible in VERDICTS else None
 
 
 def round_scores(first: str, second: str) -> float:
@@ -172,6 +174,9 @@ def summarize(rows: list[dict]) -> dict:
     for key in ('over_150_words', 'think_leak', 'citations', 'markdown'):
         result[key] = sum(c[key] for c in checks)
     result['avg_words'] = round(sum(c['words'] for c in checks) / len(checks), 1) if checks else 0
+    # A run with errors is not comparable: averaging only the judged rows can look better than a full run.
+    result['coverage'] = round(result['judged'] / len(rows), 4) if rows else 0.0
+    result['comparable'] = bool(rows) and result['errors'] == 0
     return result
 
 
@@ -198,11 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'run':
         core_client = ModelClient(settings)
         try:
-            # Same retrieval as the submission: hybrid when embeddings are available, BM25 otherwise.
-            index = HybridIndex.build(SearchIndex(load_archive(str(args.kb))), core_client, deadline)
+            # Same retrieval and the same index-build cap as the submission.
+            build_started = time.monotonic()
+            index = HybridIndex.build(SearchIndex(load_archive(str(args.kb))), core_client,
+                                      min(deadline, build_started + EMBED_BUILD_SECONDS))
+            index_s = round(time.monotonic() - build_started, 1)
             print(f'retrieval: {"hybrid" if index.dense else "bm25"}, rerank: {index.rerank_enabled}', file=sys.stderr)
             core = Consultant(index, core_client)
-            started = time.monotonic()
             rows = run_answers(questions, core, settings.workers, deadline)
         finally:
             core_client.close()
@@ -211,7 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         details.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding='utf-8')
         times = sorted(r['elapsed_ms'] for r in rows if 'elapsed_ms' in r)
         print(json.dumps({'answers': len(rows), 'errors': sum('error' in r for r in rows),
-                          'wall_s': round(time.monotonic() - started, 1),
+                          'retrieval': 'hybrid' if index.dense else 'bm25', 'rerank': index.rerank_enabled,
+                          'index_s': index_s, 'total_s': round(time.monotonic() - build_started, 1),
                           'p50_ms': times[len(times) // 2] if times else None,
                           'max_ms': times[-1] if times else None,
                           'out': str(args.out), 'details': str(details)}, ensure_ascii=False, indent=1))
@@ -235,6 +243,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{r['id']:>4}  {mark}  words={r['checks']['words']}")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     print(f'report: {report}')
+    if not summary['comparable']:
+        print(f"NOT COMPARABLE: {summary['errors']} rows without a verdict; do not rank this run by score", file=sys.stderr)
+        return 2
     return 0
 
 

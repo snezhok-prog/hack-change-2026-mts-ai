@@ -104,6 +104,18 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(result.answer, 'Да, ставим. Какой регион?')
         self.assertTrue(any(s.get('guard') for s in result.sources))
 
+    def test_g020_long_guard_reaches_the_model_whole(self):
+        guard = ('Синтетическое защитное правило. ' * 85) + 'Обязательное условие: только при установленных приборах.'
+        text = f'# Платформа\nПлатформа учёта показаний.\n## Чего утверждать нельзя\n{guard}'
+        sent = []
+        class FakeClient:
+            settings = Settings('https://x.invalid', 'k', 'm', top_k=1)
+            def generate(self, messages, deadline):
+                sent.append(messages[-1]['content'])
+                return 'Ответ.'
+        Consultant(SearchIndex(split_document('p.md', text)), FakeClient()).answer('Платформа учёта?', time.monotonic() + 5)
+        self.assertIn('Обязательное условие: только при установленных приборах.', sent[0])
+
     def test_tidy_keeps_wording(self):
         self.assertEqual(tidy('## Итог\n- Да, можно [2, 3].\n- От 750 кВт.'), 'Итог\nДа, можно.\nОт 750 кВт.')
 

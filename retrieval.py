@@ -16,25 +16,40 @@ PLATFORM, OREM, SOLAR, LOSSES, PHOTO = ('облачная платформа у�
                                        'солнечные электростанции', 'поиск коммерческих потерь', 'распознавание показаний')
 # (client wording, search terms to add, product heading prefix to prefer)
 QUERY_SYNONYMS = (
-    (r'аскуэ|асту|аиис|автоматизированн\w* систем\w* учет|автоматическ\w* (?:учет|сбор)|автоматизир\w* (?:учет|сбор)|удаленн\w* (?:сбор|сня)', 'облачная платформа учёта электроэнергии автоматический сбор показаний приборов', PLATFORM),
+    # Acronyms only as whole words: 'асту' must not fire inside 'растут' (G-020).
+    (r'\bаскуэ\b|\bасту\b|\bаиис\b|автоматизированн\w* систем\w* учет|автоматическ\w* (?:учет|сбор)|автоматизир\w* (?:учет|сбор)|удаленн\w* (?:сбор|сня)', 'облачная платформа учёта электроэнергии автоматический сбор показаний приборов', PLATFORM),
     (r'умн\w* сч[её]тчик|смарт.?сч[её]тчик|интеллектуальн\w* сч[её]тчик', 'интеллектуальная система учёта облачная платформа учёта', PLATFORM),
     (r'\bорэм\b|оптов\w* рын', 'выход на оптовый рынок электроэнергии', OREM),
     (r'\bсэс\b|солнечн\w* (?:панел|станц|электростанц)|фотоэлектр', 'солнечная электростанция', SOLAR),
-    (r'хищени|воруют|ворую|кража|краж|безучетн|неучтенн|незаконн\w* подключ', 'поиск коммерческих потерь электроэнергии', LOSSES),
-    (r'по фото|фотограф|сфотографир|фотк|снимок сч[её]тчик', 'распознавание показаний приборов учёта по фотографии', PHOTO),
-    (r'сим.?карт|\bsim\b|симк', 'передача данных приборов учёта облачная платформа', PLATFORM),
+    (r'хищени|воруют|ворую|\bкраж|безучетн|неучтенн|незаконн\w* подключ', 'поиск коммерческих потерь электроэнергии', LOSSES),
+    (r'по фото|фотограф|сфотографир|\bфотк|снимок сч[её]тчик', 'распознавание показаний приборов учёта по фотографии', PHOTO),
+    (r'сим.?карт|\bsim\b|\bсимк', 'передача данных приборов учёта облачная платформа', PLATFORM),
     # Topic hints without a product preference: the client mentions it in passing.
     (r'\bфото\b|\bфотки?\b|присыла\w* фото', 'распознавание показаний приборов учёта по фотографии', None),
     (r'(?:перв|втор|трет|четв[её]рт|пят|шест)\w* (?:ценов\w* )?категор|ценов\w* категор|\bчетв[её]ртая\b|\bшестая\b',
      'ценовые категории какая выгоднее почасовая цена двухставочная передача', 'ценовые категории'),
 )
+NEGATION_BEFORE = re.compile(r'\b(?:не|без|нет)\b')
+NEGATION_AFTER = re.compile(r'\s*(?:\w+\s+)?(?:не|нет)\b')
 NAMED_PRODUCT_BOOST = 1.6  # a product the client named outranks overview pages listing every product
 STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш даже если этих эти этот хотим хочу'.split())
 
 
+def _negated(lowered: str, start: int, end: int) -> bool:
+    """'не нужна СЭС', 'без АСКУЭ', 'по фото не подходит': the client rules the topic out."""
+    before = re.split(r'[.!?;,]', lowered[max(0, start - 25):start])[-1]
+    after = re.split(r'[.!?;,]', lowered[end:end + 25])[0]
+    return bool(NEGATION_BEFORE.search(before) or NEGATION_AFTER.match(after))
+
+
 def _matches(text: str):
     lowered = text.lower().replace('ё', 'е')
-    return [(phrase, product) for pattern, phrase, product in QUERY_SYNONYMS if re.search(pattern.replace('ё', 'е'), lowered)]
+    found = []
+    for pattern, phrase, product in QUERY_SYNONYMS:
+        hits = list(re.finditer(pattern.replace('ё', 'е'), lowered))
+        if hits and not all(_negated(lowered, m.start(), m.end()) for m in hits):
+            found.append((phrase, product))
+    return found
 
 
 def expand_query(text: str) -> str:

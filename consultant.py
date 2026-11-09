@@ -55,7 +55,6 @@ SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. �
 
 GUARD_HEADINGS = ('Факты, которые можно утверждать', 'Чего утверждать нельзя')
 CONTEXT_LIMIT = 14000   # characters of retrieved text sent to the model
-GUARD_LIMIT = 2500      # per guard section
 CITATION = re.compile(r'\s*\[(?:\d+(?:\s*[,–-]\s*\d+)*)\]')
 MARKDOWN = re.compile(r'\*\*|__|^\s{0,3}#{1,6}\s+|^\s*[-*•]\s+', re.M)
 
@@ -127,7 +126,8 @@ class Consultant:
             for chunk in self.guards.get(source, []):
                 if (chunk.source, chunk.heading, chunk.text) not in seen:
                     seen.add((chunk.source, chunk.heading, chunk.text))
-                    blocks.append(f'### {chunk.heading}\n{chunk.text.strip()[:GUARD_LIMIT]}')
+                    # Whole section: its binding condition is often the last line (G-020).
+                    blocks.append(f'### {chunk.heading}\n{chunk.text.strip()}')
                     sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
                                     'text': chunk.text, 'score': 0.0, 'guard': True})
         return '\n\n'.join(blocks), tuple(sources)

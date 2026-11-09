@@ -20,6 +20,21 @@ class VerdictAndMetricTests(unittest.TestCase):
         self.assertIsNone(evaluation.parse_verdict('A>B, хотя возможно B>A'))
         self.assertIsNone(evaluation.parse_verdict('не могу решить'))
 
+    def test_g019_verdict_must_be_exactly_one_label(self):
+        for text in ('NOT A>B', 'A>B is invalid', 'A>B, хотя возможно B>A', 'не могу решить', 'A>B\nB>A'):
+            self.assertIsNone(evaluation.parse_verdict(text), text)
+        for text, label in (('Метка: B > A', 'B>A'), ('`A>>B`', 'A>>B'), ('A=B.', 'A=B')):
+            self.assertEqual(evaluation.parse_verdict(text), label)
+
+    def test_g019_partial_runs_are_not_comparable(self):
+        full = [{'checks': evaluation.static_checks('a'), 'score': .625} for _ in range(18)]
+        partial = [{'checks': evaluation.static_checks('a'), 'score': 1.0}] + \
+                  [{'checks': evaluation.static_checks('a'), 'error': 'x'} for _ in range(17)]
+        self.assertTrue(evaluation.summarize(full)['comparable'])
+        summary = evaluation.summarize(partial)
+        self.assertFalse(summary['comparable'])
+        self.assertEqual(summary['coverage'], round(1 / 18, 4))
+
     def test_round_scores_mirror_swapped_order(self):
         # Round 1: team is B; round 2: team is A.
         self.assertEqual(evaluation.round_scores('B>>A', 'A>>B'), 1.0)

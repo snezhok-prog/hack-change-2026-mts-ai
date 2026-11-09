@@ -6,7 +6,7 @@ from unittest.mock import patch
 import httpx
 from model_client import ModelClient, ProviderError, Settings
 from consultant import SYSTEM
-from retrieval import PLATFORM, SOLAR, HybridIndex, SearchIndex, expand_query, named_products, split_document
+from retrieval import OREM, PLATFORM, SOLAR, HybridIndex, SearchIndex, expand_query, named_products, split_document
 
 DOCS = ('# Солнце\nСолнечные панели на крыше склада.\n'
         '# Учёт\nАвтоматический сбор показаний счётчиков в облачную платформу.\n'
@@ -127,6 +127,14 @@ class QueryExpansionTests(unittest.TestCase):
         self.assertEqual(named_products('Кто-то присылает фото'), set())  # hint only, no product preference
         self.assertTrue(index.search('Кажется, четвёртая. Что проверить в счёте?', 1)[0].chunk.heading.startswith('Ценовые категории'))
         self.assertIn('вместе со всеми условиями', SYSTEM)
+
+    def test_g020_whole_word_acronyms_and_negation(self):
+        self.assertEqual(named_products('Расходы растут. Как разобраться в счёте?'), set())   # 'асту' inside 'растут'
+        self.assertEqual(expand_query('Расходы растут'), 'Расходы растут')
+        self.assertEqual(named_products('Нам не нужна СЭС. Интересует выход на оптовый рынок.'), {OREM})
+        self.assertEqual(named_products('По фото не подходит, нужен автоматический сбор'), {PLATFORM})
+        self.assertEqual(named_products('Без АСКУЭ обойдёмся?'), set())
+        self.assertEqual(named_products('Хотим СЭС, но без накопителей'), {SOLAR})
 
     def test_expansion_only_adds_terms(self):
         self.assertEqual(expand_query('Солнце?'), 'Солнце?')
