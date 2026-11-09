@@ -41,7 +41,7 @@ python scripts/build_submission.py
 
 ## Docker для локального веб-демо
 
-Dockerfile и Compose подготовлены, но контейнерный запуск пока не проверен: на машине разработки Docker отсутствует.
+Dockerfile и Compose проверены в GitHub Actions на Linux: сборка, запуск HTTP и сохранение SQLite после перезапуска. Локальная установка Docker на Windows ещё выполняется.
 
 1. Создайте каталог `data` и положите предоставленный организаторами `knowledge-base.zip` внутрь.
 2. Скопируйте `.env.example` в `.env`, заполните доступ к модели и собственный ключ архива `ADMIN_TOKEN`.
@@ -54,3 +54,7 @@ Dockerfile и Compose подготовлены, но контейнерный з
 Прочитайте [протокол Codex ↔ Claude](docs/COLLABORATION.md), [архитектуру](docs/ARCHITECTURE.md) и [статус/ограничения](docs/STATUS.md).
 
 Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`. Почтовые ветки `coordination/*` не являются ветками кода и не сливаются в main.
+
+Задачи первой итерации: [Рома / QA #1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1), [Олег / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
+
+GitHub Actions автоматически проверяет тесты, упаковку ZIP и контейнер при push в main/feature-ветки и при PR в main. API модели и база организаторов для CI не нужны; тесты используют синтетические данные.
