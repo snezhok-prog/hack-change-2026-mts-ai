@@ -24,7 +24,7 @@ import sys
 import time
 from consultant import Consultant
 from model_client import ModelClient, ProviderError, Settings
-from retrieval import SearchIndex, load_archive
+from retrieval import HybridIndex, SearchIndex, load_archive
 from solution import read_questions
 
 DEFAULT_DATA = Path('data/org')
@@ -198,7 +198,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'run':
         core_client = ModelClient(settings)
         try:
-            core = Consultant(SearchIndex(load_archive(str(args.kb))), core_client)
+            # Same retrieval as the submission: hybrid when embeddings are available, BM25 otherwise.
+            index = HybridIndex.build(SearchIndex(load_archive(str(args.kb))), core_client, deadline)
+            print(f'retrieval: {"hybrid" if index.dense else "bm25"}, rerank: {index.rerank_enabled}', file=sys.stderr)
+            core = Consultant(index, core_client)
             started = time.monotonic()
             rows = run_answers(questions, core, settings.workers, deadline)
         finally:

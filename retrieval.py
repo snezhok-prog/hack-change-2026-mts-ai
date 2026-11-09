@@ -23,6 +23,10 @@ QUERY_SYNONYMS = (
     (r'хищени|воруют|ворую|кража|краж|безучетн|неучтенн|незаконн\w* подключ', 'поиск коммерческих потерь электроэнергии', LOSSES),
     (r'по фото|фотограф|сфотографир|фотк|снимок сч[её]тчик', 'распознавание показаний приборов учёта по фотографии', PHOTO),
     (r'сим.?карт|\bsim\b|симк', 'передача данных приборов учёта облачная платформа', PLATFORM),
+    # Topic hints without a product preference: the client mentions it in passing.
+    (r'\bфото\b|\bфотки?\b|присыла\w* фото', 'распознавание показаний приборов учёта по фотографии', None),
+    (r'(?:перв|втор|трет|четв[её]рт|пят|шест)\w* (?:ценов\w* )?категор|ценов\w* категор|\bчетв[её]ртая\b|\bшестая\b',
+     'ценовые категории какая выгоднее почасовая цена двухставочная передача', 'ценовые категории'),
 )
 NAMED_PRODUCT_BOOST = 1.6  # a product the client named outranks overview pages listing every product
 STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш даже если этих эти этот хотим хочу'.split())
@@ -40,7 +44,7 @@ def expand_query(text: str) -> str:
 
 def named_products(text: str) -> set[str]:
     """Product heading prefixes the client referred to (lowercase, ё→е)."""
-    return {product for _, product in _matches(text)}
+    return {product for _, product in _matches(text) if product}
 
 
 def tokens(text: str) -> list[str]:

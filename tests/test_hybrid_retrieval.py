@@ -116,6 +116,18 @@ class QueryExpansionTests(unittest.TestCase):
         self.assertEqual(named_products('Счета выросли'), set())
         self.assertIn('не предлагай выбор', SYSTEM)
 
+    def test_c015_photo_hint_and_price_category(self):
+        kb = ('# Облачная платформа учёта электроэнергии\nСбор показаний счётчиков арендаторов.\n'
+              '# Распознавание показаний приборов учёта по фотографии\nПоказания по снимку прибора.\n'
+              '# Ценовые категории: какая у вас\nЧетвёртая: почасовая цена и двухставочная передача.\n'
+              '# Тарифы\nСчёт и тариф.')
+        index = SearchIndex(split_document('kb.md', kb))
+        photo = [h.chunk.heading for h in index.search('Кто-то присылает фото, по некоторым ходит техник', 3)]
+        self.assertTrue(any(h.startswith('Распознавание') for h in photo))
+        self.assertEqual(named_products('Кто-то присылает фото'), set())  # hint only, no product preference
+        self.assertTrue(index.search('Кажется, четвёртая. Что проверить в счёте?', 1)[0].chunk.heading.startswith('Ценовые категории'))
+        self.assertIn('вместе со всеми условиями', SYSTEM)
+
     def test_expansion_only_adds_terms(self):
         self.assertEqual(expand_query('Солнце?'), 'Солнце?')
         self.assertTrue(expand_query('Нужна АСКУЭ').startswith('Нужна АСКУЭ\n'))
