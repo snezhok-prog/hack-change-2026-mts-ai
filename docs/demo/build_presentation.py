@@ -109,7 +109,7 @@ def build(output, font_dir):
       ("КОД","Поиск, CSV, веб-чат, история, заявки и сборщик ZIP присутствуют.",INK),
       ("CI / УСПЕХ","Тесты, ZIP, контейнер, HTTP и сохранение SQLite после перезапуска.",INK),
       ("ЖИВАЯ МОДЕЛЬ","Качество, факты и скорость пока не подтверждены в этой работе.",RED),
-      ("ПЛАТФОРМА","Принятие сабмита и конкурсный балл пока не подтверждены.",RED)]:
+      ("ПЛАТФОРМА","Первая попытка: «Не хватает данных в решении». Балла нет.",RED)]:
         text(48,y,label,17,color,True); wrap(300,y,body,910,21,MUTED); y+=68
     text(48,565,"Источник: GitHub Actions · run 42684281251 · commit 2ed811b",16,RED)
     c.linkURL(CI,(48,H-592,1100,H-560),relative=0)
@@ -149,3 +149,4 @@ if __name__ == "__main__":
     p.add_argument("--font-dir",type=Path,default=Path("/usr/share/fonts/truetype/dejavu"))
     a=p.parse_args()
     build(a.output,a.font_dir)
+
