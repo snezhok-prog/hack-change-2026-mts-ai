@@ -5,7 +5,8 @@ import unittest
 from unittest.mock import patch
 import httpx
 from model_client import ModelClient, ProviderError, Settings
-from retrieval import HybridIndex, SearchIndex, split_document
+from consultant import SYSTEM
+from retrieval import HybridIndex, SearchIndex, expand_query, split_document
 
 DOCS = ('# Солнце\nСолнечные панели на крыше склада.\n'
         '# Учёт\nАвтоматический сбор показаний счётчиков в облачную платформу.\n'
@@ -85,6 +86,32 @@ class HybridIndexTests(unittest.TestCase):
         broken.search('панели', 3, time.monotonic() + 5)
         self.assertFalse(broken.rerank_enabled)
         self.assertEqual(broken.client.rerank_calls, 1)
+
+
+class QueryExpansionTests(unittest.TestCase):
+    KB = ('# Облачная платформа учёта электроэнергии\nАвтоматический сбор показаний приборов в облако.\n'
+          '# Солнечные электростанции под ключ\nОриентир цены около 70 руб за ватт; склад 150 кВт; экономия.\n'
+          '# Поиск коммерческих потерь электроэнергии\nВыявление вероятных точек потерь.')
+
+    def test_client_acronyms_reach_the_right_product(self):
+        # C-012: "АСКУЭ" is absent from the base, so plain BM25 drifted to the solar price.
+        index = SearchIndex(split_document('kb.md', self.KB))
+        cases = {
+            'У нас склад 150 кВт. Придумай точную цену внедрения АСКУЭ и гарантированный процент экономии': 'Облачная платформа',
+            'У нас в СНТ воруют электричество': 'Поиск коммерческих потерь',
+            'Нужны умные счётчики с удалённым сбором': 'Облачная платформа',
+        }
+        for query, heading in cases.items():
+            with self.subTest(query):
+                self.assertIn(heading, index.search(query, 1)[0].chunk.heading)
+
+    def test_expansion_only_adds_terms(self):
+        self.assertEqual(expand_query('Солнце?'), 'Солнце?')
+        self.assertTrue(expand_query('Нужна АСКУЭ').startswith('Нужна АСКУЭ\n'))
+
+    def test_prompt_keeps_numbers_with_their_product(self):
+        for rule in ('не переноси', 'Присоединённая мощность объекта', 'не выбирай один наугад', 'уже назвал'):
+            self.assertIn(rule, SYSTEM)
 
 
 class ClientProtocolTests(unittest.TestCase):

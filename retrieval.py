@@ -9,7 +9,25 @@ import time
 from zipfile import ZipFile
 
 LOG = logging.getLogger('retrieval')
-STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш'.split())
+# Client wording -> knowledge-base wording. The base names products in full ("облачная
+# платформа учёта") while clients use acronyms and colloquialisms; BM25 cannot bridge that.
+# Expansions add search terms only; they never become product facts.
+QUERY_SYNONYMS = (
+    (r'аскуэ|асту|аиис|автоматизированн\w* систем\w* учёт|автоматическ\w* (?:учёт|сбор)|автоматизир\w* (?:учёт|сбор)|удалённ\w* (?:сбор|сня)', 'облачная платформа учёта электроэнергии автоматический сбор показаний приборов'),
+    (r'умн\w* сч[её]тчик|смарт.?сч[её]тчик|интеллектуальн\w* сч[её]тчик', 'интеллектуальная система учёта облачная платформа учёта'),
+    (r'\bорэм\b|оптов\w* рын', 'выход на оптовый рынок электроэнергии'),
+    (r'\bсэс\b|солнечн\w* панел|фотоэлектр', 'солнечная электростанция'),
+    (r'хищени|воруют|ворую|кража|краж|безучётн|безучетн|неучтённ|незаконн\w* подключ', 'поиск коммерческих потерь электроэнергии'),
+    (r'по фото|фотограф|сфотографир|фотк|снимок сч[её]тчик', 'распознавание показаний приборов учёта по фотографии'),
+    (r'сим.?карт|\bsim\b|симк', 'передача данных приборов учёта облачная платформа'),
+)
+STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш даже если этих эти этот хотим хочу'.split())
+
+
+def expand_query(text: str) -> str:
+    lowered = text.lower().replace('ё', 'е')
+    extra = [phrase for pattern, phrase in QUERY_SYNONYMS if re.search(pattern.replace('ё', 'е'), lowered)]
+    return text if not extra else text + '\n' + '\n'.join(extra)
 
 
 def tokens(text: str) -> list[str]:
@@ -101,7 +119,7 @@ class SearchIndex:
     def search(self, query: str, limit: int = 8) -> list[Hit]:
         if limit < 1:
             raise ValueError('Search limit must be positive')
-        terms = set(tokens(query))
+        terms = set(tokens(expand_query(query)))
         hits = []
         for chunk, counts, size in zip(self.chunks, self.terms, self.lengths):
             norm = 1.2 * (.25 + .75 * size / self.average)
