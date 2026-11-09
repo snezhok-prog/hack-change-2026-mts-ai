@@ -51,10 +51,12 @@ Dockerfile и Compose проверены в GitHub Actions на Linux: сбор�
 
 ## Работа команды
 
+Руководитель проекта — Рома (Kunnjut); роли, зоны ответственности и порядок работы — в [AGENTS.md](AGENTS.md), он главнее остальных документов.
+
 Прочитайте [архитектуру](docs/ARCHITECTURE.md), [план ИИ-ядра](docs/AI-CORE.md) и [статус/ограничения](docs/STATUS.md).
 
 Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`.
 
-Задачи первой итерации: [Рома / QA #1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1), [Олег / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
+Задачи первой итерации: Рома — ИИ-ядро и руководство ([#1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1) переназначен), [Олег / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
 
-GitHub Actions автоматически проверяет тесты, упаковку ZIP и контейнер при push в main/feature-ветки и при PR в main. API модели и база организаторов для CI не нужны; тесты используют синтетические данные.
+Код попадает в `main` только через PR, слияние — за Ромой. GitHub Actions автоматически проверяет тесты, упаковку ZIP и контейнер при push в main/feature-ветки и при PR в main. API модели и база организаторов для CI не нужны; тесты используют синтетические данные.
