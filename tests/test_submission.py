@@ -115,6 +115,17 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(settings.model, 'organizer-model')
             self.assertEqual(settings.base_url, 'https://example.invalid/v1')
 
+    def test_ids_are_echoed_verbatim_and_csv_variants_are_read(self):
+        variants = {
+            'leading blank line, reversed columns': '\r\n\nquestion,id\r\nАльфа?, 001 \r\n',
+            'semicolon delimiter': 'id;question\n 001 ;Альфа?\n',
+            'tab delimiter': 'id\tquestion\n 001 \tАльфа?\n',
+        }
+        for name, content in variants.items():
+            with self.subTest(name):
+                (self.root / 'questions.csv').write_text(content, encoding='utf-8')
+                self.assertEqual(read_questions(self.root / 'questions.csv'), [(' 001 ', 'Альфа?')])
+
     def test_invalid_numbers_and_placeholders_fall_back_instead_of_aborting(self):
         env = {'LLM_BASE_URL': 'https://example.invalid', 'LLM_API_KEY': 'test', 'LLM_MODEL': 'LLM_MODEL',
                'TEMPERATURE': 'nan', 'MAX_TOKENS': 'MAX_TOKENS', 'TOP_K': '50', 'MAX_WORKERS': '16', 'REQUEST_TIMEOUT': 'inf'}

@@ -6,6 +6,7 @@ failures degrade to an honest fallback answer instead of aborting the run.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
+import io
 import logging
 from pathlib import Path
 import sys
@@ -35,25 +36,30 @@ def find_input(data_dir: Path, names: tuple[str, ...]) -> Path:
 
 
 def read_questions(path: Path) -> list[tuple[str, str]]:
-    """Tolerates BOM, header case/spaces and extra columns; skips rows without ID; keeps the
-    first of duplicate IDs (output IDs must be unique); empty questions are kept and answered."""
+    """Tolerates BOM, blank lines before the header, `;`/tab delimiters, header case/spaces,
+    column order and extra columns. IDs are echoed exactly as given (the platform matches
+    them verbatim); rows without ID are skipped; the first of duplicate IDs is kept (output
+    IDs must be unique); empty questions are kept and answered."""
     with path.open(encoding='utf-8-sig', newline='') as stream:
-        reader = csv.reader(stream)
-        header = [h.strip().lower() for h in next(reader, [])]
-        if len(header) < 2:
-            raise ValueError('Input needs id and question columns')
-        id_col = header.index('id') if 'id' in header else 0
-        q_col = header.index('question') if 'question' in header else (1 if id_col != 1 else 0)
-        rows, seen = [], set()
-        for record in reader:
-            identifier = record[id_col].strip() if len(record) > id_col else ''
-            if not identifier:
-                continue
-            if identifier in seen:
-                LOG.warning('Duplicate input ID skipped')
-                continue
-            seen.add(identifier)
-            rows.append((identifier, record[q_col] if len(record) > q_col else ''))
+        text = stream.read().lstrip('\r\n')
+    first_line = text.split('\n', 1)[0]
+    delimiter = max(',;\t', key=first_line.count) if any(d in first_line for d in ',;\t') else ','
+    reader = csv.reader(io.StringIO(text, newline=''), delimiter=delimiter)
+    header = [h.strip().lower() for h in next(reader, [])]
+    if len(header) < 2:
+        raise ValueError('Input needs id and question columns')
+    id_col = header.index('id') if 'id' in header else 0
+    q_col = header.index('question') if 'question' in header else (1 if id_col != 1 else 0)
+    rows, seen = [], set()
+    for record in reader:
+        identifier = record[id_col] if len(record) > id_col else ''
+        if not identifier.strip():
+            continue
+        if identifier in seen:
+            LOG.warning('Duplicate input ID skipped')
+            continue
+        seen.add(identifier)
+        rows.append((identifier, record[q_col] if len(record) > q_col else ''))
     if not rows:
         raise ValueError('Input contains no questions')
     return rows
