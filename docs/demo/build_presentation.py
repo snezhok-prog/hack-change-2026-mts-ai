@@ -66,6 +66,8 @@ def build(output, font_dir):
     text(48,553,"Репозиторий проекта",16,RED,True)
     text(48,579,REPO,18,INK)
     c.linkURL(REPO,(48,H-608,1000,H-575),relative=0)
+    text(48,617,"Проверка: .env и data/ по README → docker compose up --build → localhost:8000.",14,MUTED)
+    text(48,640,"Вопрос → уточнение → тестовая заявка → новый диалог → архив. Подробно: docs/demo/scenario.md",14,MUTED)
     end()
 
     start(2,"Пользовательский путь","Пять шагов в одном интерфейсе","Консультация и заявка связаны одной сессией.")
