@@ -1,4 +1,5 @@
 """Shared, stateless consultation core for batch submission and the web API."""
+from collections import defaultdict
 from dataclasses import dataclass
 import re
 import time
@@ -60,6 +61,7 @@ SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. �
 
 GUARD_HEADINGS = ('Факты, которые можно утверждать', 'Чего утверждать нельзя')
 CONTEXT_LIMIT = 14000   # characters of retrieved text sent to the model
+CONTEXT_EXPANSION_LIMIT = 4000
 CITATION = re.compile(r'\s*\[(?:\d+(?:\s*[,–-]\s*\d+)*)\]')
 MARKDOWN = re.compile(r'\*\*|__|^\s{0,3}#{1,6}\s+|^\s*[-*•]\s+', re.M)
 
@@ -126,7 +128,7 @@ class Consultant:
             if chunk.heading.rsplit(' / ', 1)[-1].strip() in GUARD_HEADINGS:
                 self.guards.setdefault(chunk.source, []).append(chunk)
 
-    def context(self, hits) -> tuple[str, tuple[dict, ...]]:
+    def context(self, hits, query: str = '') -> tuple[str, tuple[dict, ...]]:
         blocks, sources, used, seen = [], [], 0, set()
         for hit in hits:
             chunk = hit.chunk
@@ -146,7 +148,35 @@ class Consultant:
                     blocks.append(f'### {chunk.heading}\n{chunk.text.strip()}')
                     sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
                                     'text': chunk.text, 'score': 0.0, 'guard': True})
-        return '\n\n'.join(blocks), tuple(sources)
+        material = '\n\n'.join(blocks)
+        if not query or not sources or len(material) >= CONTEXT_LIMIT:
+            return material, tuple(sources)
+        # Fill remaining space from one relevant document already represented by its guards.
+        # Rank documents by their three strongest lexical hits; never add a new product here.
+        lexical = getattr(self.index, 'lexical', self.index)
+        ranked = lexical.search(query, len(lexical.chunks))
+        documents = {source['document'] for source in sources}
+        scores = defaultdict(list)
+        for hit in ranked[:30]:
+            if hit.chunk.source in documents:
+                scores[hit.chunk.source].append(hit.score)
+        if not scores:
+            return material, tuple(sources)
+        leading = max(scores, key=lambda source: (sum(scores[source][:3]), source))
+        budget = min(CONTEXT_LIMIT, len(material) + CONTEXT_EXPANSION_LIMIT)
+        for hit in ranked:
+            chunk = hit.chunk
+            identity = (chunk.source, chunk.heading, chunk.text)
+            if chunk.source != leading or identity in seen:
+                continue
+            block = f'\n\n### {chunk.heading or chunk.source}\n{chunk.text.strip()}'
+            if len(material) + len(block) > budget:
+                continue
+            material += block
+            seen.add(identity)
+            sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
+                            'text': chunk.text, 'score': round(hit.score, 4), 'expanded': True})
+        return material, tuple(sources)
 
     def answer(self, dialogue: str, deadline: float) -> Consultation:
         if not isinstance(dialogue, str) or not dialogue.strip():
@@ -157,7 +187,7 @@ class Consultant:
         query, top_k = dialogue_query(dialogue), self.client.settings.top_k
         hits = (self.index.search(query, top_k, deadline) if isinstance(self.index, HybridIndex)
                 else self.index.search(query, top_k))
-        material, sources = self.context(hits)
+        material, sources = self.context(hits, query=query)
         user = (f'Материалы базы знаний:\n{material or "(по запросу ничего не найдено)"}\n\n'
                 f'Диалог с клиентом (ответь на последнюю реплику пользователя):\n{dialogue.strip()}\n\n{NO_THINK}')
         answer = self.client.generate([{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}], deadline)
