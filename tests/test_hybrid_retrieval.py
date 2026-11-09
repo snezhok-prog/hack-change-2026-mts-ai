@@ -6,7 +6,7 @@ from unittest.mock import patch
 import httpx
 from model_client import ModelClient, ProviderError, Settings
 from consultant import SYSTEM
-from retrieval import HybridIndex, SearchIndex, expand_query, split_document
+from retrieval import PLATFORM, SOLAR, HybridIndex, SearchIndex, expand_query, named_products, split_document
 
 DOCS = ('# Солнце\nСолнечные панели на крыше склада.\n'
         '# Учёт\nАвтоматический сбор показаний счётчиков в облачную платформу.\n'
@@ -104,6 +104,17 @@ class QueryExpansionTests(unittest.TestCase):
         for query, heading in cases.items():
             with self.subTest(query):
                 self.assertIn(heading, index.search(query, 1)[0].chunk.heading)
+
+    def test_named_product_outranks_overview_listing_all_products(self):
+        # C-013: with "АСКУЭ" named, overview pages mentioning every product used to rank first.
+        kb = ('# Обзор продуктов\nОблачная платформа учёта, солнечные станции, поиск потерь, оптовый рынок: '
+              'автоматический сбор показаний приборов, учёт электроэнергии для склада.\n'
+              '# Облачная платформа учёта электроэнергии\nСбор показаний приборов.')
+        index = SearchIndex(split_document('kb.md', kb))
+        self.assertTrue(index.search('Склад 150 кВт, хотим АСКУЭ', 1)[0].chunk.heading.startswith('Облачная платформа'))
+        self.assertEqual(named_products('Хотим АСКУЭ и СЭС'), {PLATFORM, SOLAR})
+        self.assertEqual(named_products('Счета выросли'), set())
+        self.assertIn('не предлагай выбор', SYSTEM)
 
     def test_expansion_only_adds_terms(self):
         self.assertEqual(expand_query('Солнце?'), 'Солнце?')
