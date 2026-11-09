@@ -74,13 +74,13 @@ class PackagingTests(unittest.TestCase):
                 rows = list(reader)
                 self.assertEqual(reader.fieldnames, ['id', 'answer'])
             self.assertEqual([r['id'] for r in rows], ['007', 'abc'])
-            self.assertEqual(rows[0]['answer'], 'Тестовый ответ, с "кавычками"\nи переносом [1]')
+            self.assertEqual(rows[0]['answer'], 'Тестовый ответ, с "кавычками"\nи переносом')
             self.assertEqual(len(calls), 2)
             for path, authorization, payload in calls:
                 self.assertEqual(path, '/v1/chat/completions')
                 self.assertEqual(authorization, 'Bearer synthetic-fixture-key')
                 self.assertEqual(payload['model'], 'fixture-model')
-                self.assertTrue(json.loads(payload['messages'][-1]['content'])['knowledge_fragments'])
+                self.assertIn('Тестовый датчик Альфа измеряет воду.', payload['messages'][-1]['content'])
         finally:
             server.shutdown()
             server.server_close()

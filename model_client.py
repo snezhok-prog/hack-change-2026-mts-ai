@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import TimeoutError as FutureTimeout
 import math
 import os
+import re
 import threading
 import time
 from urllib.parse import urlsplit
@@ -48,6 +49,23 @@ class Settings:
 
 
 DEFAULT_MODEL = 'qwen/qwen3.8-27b'
+THINK_BLOCK = re.compile(r'<think>.*?</think>', re.S | re.I)
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove Qwen3 reasoning. An unterminated <think> means no final answer was produced."""
+    text = THINK_BLOCK.sub('', text)
+    if '</think>' in text.lower():
+        text = text[text.lower().rindex('</think>') + len('</think>'):]
+    if text.lstrip().lower().startswith('<think>'):
+        return ''
+    return text.strip()
+
+
+def reasoning_off_params(base_url: str) -> dict:
+    if 'openrouter.ai' in base_url:
+        return {'reasoning': {'enabled': False}}
+    return {'chat_template_kwargs': {'enable_thinking': False}}
 
 
 def env_value(name: str) -> str:
@@ -80,6 +98,8 @@ class ModelClient:
         self.thread = threading.Thread(target=self.loop.run_forever, name='model-http', daemon=True)
         self.thread.start()
         self.closed = False
+        # Ask Qwen3 not to emit reasoning; dropped for good if the proxy rejects the field.
+        self.reasoning_off = reasoning_off_params(settings.base_url)
 
     def close(self) -> None:
         if self.closed:
@@ -119,15 +139,19 @@ class ModelClient:
             if remaining <= 0:
                 raise ProviderError('Run time budget exhausted')
             try:
+                extra = self.reasoning_off
                 response = await self.client.post(self.settings.base_url + '/chat/completions',
                     headers={'Authorization': 'Bearer ' + self.settings.api_key},
                     json={'model': self.settings.model, 'messages': messages,
-                          'temperature': self.settings.temperature, 'max_tokens': self.settings.max_tokens},
+                          'temperature': self.settings.temperature, 'max_tokens': self.settings.max_tokens, **extra},
                     timeout=httpx.Timeout(min(self.settings.timeout, remaining), connect=min(10, remaining)))
             except httpx.TransportError:
                 if attempt == 2:
                     raise ProviderError('Provider transport failure') from None
             else:
+                if response.status_code in {400, 422} and extra:
+                    self.reasoning_off = {}  # proxy does not accept the field; retry plain at once
+                    continue
                 if response.status_code not in {408, 429, 500, 502, 503, 504}:
                     if not response.is_success:
                         raise ProviderError(f'Provider HTTP {response.status_code}')
@@ -135,6 +159,7 @@ class ModelClient:
                         answer = response.json()['choices'][0]['message']['content']
                     except (ValueError, KeyError, IndexError, TypeError):
                         raise ProviderError('Invalid provider response schema') from None
+                    answer = strip_reasoning(answer) if isinstance(answer, str) else answer
                     if not isinstance(answer, str) or not answer.strip():
                         raise ProviderError('Provider returned an empty answer')
                     if len(answer.strip()) > 10000:

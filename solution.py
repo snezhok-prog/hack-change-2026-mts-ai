@@ -14,7 +14,7 @@ import tempfile
 import time
 from zipfile import BadZipFile
 from consultant import Consultant
-from model_client import ModelClient, Settings, env_number, env_value
+from model_client import ModelClient, ProviderError, Settings, env_number, env_value
 from retrieval import SearchIndex, load_archive
 
 LOG = logging.getLogger('submission')
@@ -23,6 +23,7 @@ EMPTY_QUESTION = 'Уточните, пожалуйста, ваш вопрос: �
 QUESTION_FILES = ('questions.csv', 'train.csv')
 KB_FILES = ('knowledge-base.zip', 'knowledge_base.zip', 'kb.zip')
 MAX_ANSWER = 10000
+CHECKPOINT_SECONDS = 15.0
 
 
 def find_input(data_dir: Path, names: tuple[str, ...]) -> Path:
@@ -103,8 +104,15 @@ def run(data_dir: Path, output: Path, settings: Settings | None, client: ModelCl
             LOG.error('Knowledge base unavailable (%s); writing fallback answers', type(error).__name__)
     pending = [i for i, (_, q) in enumerate(questions) if q.strip()]
     failures = len(pending)
+    def save():
+        write_submission(output, [(qid, answers[i]) for i, (qid, _) in enumerate(questions)])
+
     if core is not None and pending:
         failures = 0
+        # Checkpoint successful answers so a platform timeout keeps finished work.
+        every = max(1, len(pending) // 20)
+        done = saved_at = 0
+        last_save = time.monotonic()
         with ThreadPoolExecutor(max_workers=settings.workers if settings else 1) as pool:
             futures = {pool.submit(core.answer, questions[i][1], deadline): i for i in pending}
             for future in as_completed(futures):
@@ -115,8 +123,13 @@ def run(data_dir: Path, output: Path, settings: Settings | None, client: ModelCl
                     LOG.info('row=%d elapsed_ms=%d sources=%d', index + 1, result.elapsed_ms, len(result.sources))
                 except Exception as error:  # one question must never cost the whole submission
                     failures += 1
-                    LOG.error('row=%d %s: %s', index + 1, type(error).__name__, error)
-    write_submission(output, [(qid, answers[i]) for i, (qid, _) in enumerate(questions)])
+                    # ProviderError text is designed to be safe; other exceptions may carry payloads.
+                    LOG.error('row=%d %s', index + 1, error if isinstance(error, ProviderError) else type(error).__name__)
+                done += 1
+                if done - saved_at >= every or time.monotonic() - last_save >= CHECKPOINT_SECONDS:
+                    save()
+                    saved_at, last_save = done, time.monotonic()
+    save()
     LOG.info('rows=%d fallback_answers=%d', len(questions), failures)
     return failures
 

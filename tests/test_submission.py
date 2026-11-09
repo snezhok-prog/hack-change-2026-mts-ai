@@ -39,9 +39,10 @@ class SubmissionTests(unittest.TestCase):
             payload = json.loads(request.content)
             self.assertEqual(payload['model'], 'test-model')
             self.assertEqual(request.url.path, '/v1/chat/completions')
-            context = json.loads(payload['messages'][-1]['content'])
-            seen.append(context['dialogue'])
-            self.assertTrue(context['knowledge_fragments'])
+            user = payload['messages'][-1]['content']
+            self.assertIn('Материалы базы знаний:', user)
+            self.assertIn('Датчики Альфа считают воду' if 'Альфа?' in user else 'Батареи Бета питают фонари', user)
+            seen.append(user.rsplit('\n', 1)[-1])
             return httpx.Response(200, json={'choices': [{'message': {'content': 'Ответ, с "кавычками"\nНовая строка [1]'}}]})
         errors = run(self.root, self.root / 'out.csv', self.settings, self.client(handler))
         self.assertEqual(errors, 0)
@@ -49,7 +50,8 @@ class SubmissionTests(unittest.TestCase):
         with (self.root / 'out.csv').open(encoding='utf-8', newline='') as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual([r['id'] for r in rows], ['007', 'two'])
-        self.assertEqual(rows[0]['answer'], 'Ответ, с "кавычками"\nНовая строка [1]')
+        # Citation markers are stripped; quoting and line breaks survive CSV.
+        self.assertEqual(rows[0]['answer'], 'Ответ, с "кавычками"\nНовая строка')
 
     def test_duplicate_ids_keep_first_and_extra_columns_are_ignored(self):
         with (self.root / 'questions.csv').open('w', encoding='utf-8-sig', newline='') as stream:
