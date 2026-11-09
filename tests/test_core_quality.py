@@ -118,6 +118,21 @@ class LengthCutTests(unittest.TestCase):
         self.assertEqual(self.client(handler).generate([], time.monotonic() + 20), 'Да, можно. Платформа поддерживает приборы.')
         self.assertEqual(calls, [1200, 2400])  # default budget, doubled once
 
+    def test_g023_fragment_without_a_sentence_is_an_error_and_budget_never_shrinks(self):
+        calls = []
+        def handler(request):
+            calls.append(json.loads(request.content)['max_tokens'])
+            return self.cut('Цена зависит от')
+        with self.assertRaisesRegex(ProviderError, 'cut off'):
+            self.client(handler).generate([], time.monotonic() + 20)
+        self.assertEqual(calls, [1200, 2400])
+        big = ModelClient(Settings('https://proxy.invalid/v1', 'k', 'm', max_tokens=8192), transport=httpx.MockTransport(handler))
+        self.addCleanup(big.close)
+        calls.clear()
+        with self.assertRaises(ProviderError):
+            big.generate([], time.monotonic() + 20)
+        self.assertEqual(calls, [8192])  # cannot grow -> no pointless retry with a smaller budget
+
     def test_retry_that_completes_wins(self):
         answers = iter([self.cut('Да, можно. Обрыв на полу'), reply('Да, можно. Полный ответ.')])
         self.assertEqual(self.client(lambda request: next(answers)).generate([], time.monotonic() + 20), 'Да, можно. Полный ответ.')

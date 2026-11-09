@@ -73,7 +73,7 @@ def strip_reasoning(text: str) -> str:
 def trim_to_sentence(text: str) -> str:
     """Cut a length-truncated answer back to its last complete sentence (if there is one)."""
     ends = [m.end() for m in re.finditer(r'[.!?…](?=\s|$)', text)]
-    return text[:ends[-1]].strip() if ends else text.strip()
+    return text[:ends[-1]].strip() if ends else ''
 
 
 def reasoning_off_params(base_url: str) -> dict:
@@ -230,18 +230,20 @@ class ModelClient:
                     except (ValueError, KeyError, IndexError, TypeError, AttributeError):
                         raise ProviderError('Invalid provider response schema') from None
                     answer = strip_reasoning(raw) if isinstance(raw, str) else raw
+                    larger = min(MAX_GROWN_TOKENS, max_tokens * 2)
+                    can_grow = not grown and larger > max_tokens  # a retry must never shrink the budget
                     if not isinstance(answer, str) or not answer.strip():
-                        if isinstance(raw, str) and '<think' in raw.lower() and not grown:
-                            grown = True  # reasoning hit the token limit: one retry with a larger budget
-                            max_tokens = min(MAX_GROWN_TOKENS, max_tokens * 2)
+                        if isinstance(raw, str) and '<think' in raw.lower() and can_grow:
+                            grown, max_tokens = True, larger  # reasoning hit the limit: one larger retry
                             continue
                         raise ProviderError('Provider returned an empty answer')
                     if finish == 'length':
-                        if not grown:
-                            grown = True  # answer cut by the token limit: one retry with a larger budget
-                            max_tokens = min(MAX_GROWN_TOKENS, max_tokens * 2)
+                        if can_grow:
+                            grown, max_tokens = True, larger  # answer cut by the limit: one larger retry
                             continue
-                        answer = trim_to_sentence(answer)  # never hand a half sentence to the client
+                        answer = trim_to_sentence(answer)
+                        if not answer:  # no complete sentence at all: let the caller use its safe fallback
+                            raise ProviderError('Provider answer cut off before a complete sentence')
                     if len(answer.strip()) > 10000:
                         raise ProviderError('Provider answer exceeds 10000 characters')
                     return answer.strip()
