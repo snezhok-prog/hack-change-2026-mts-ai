@@ -48,6 +48,32 @@ class SelfRefineTests(unittest.TestCase):
             self.assertEqual(result.answer, 'Черновой ответ про платформу учёта и показания приборов.')
 
 
+class G032Tests(unittest.TestCase):
+    def test_second_pass_never_uses_the_reserved_budget(self):
+        seen = []
+        class Slow(Client):
+            def generate(self, messages, deadline):
+                if messages[0]['content'] == REFINE_SYSTEM:
+                    seen.append(deadline)
+                return super().generate(messages, deadline)
+        now = time.monotonic()
+        run_deadline = now + REFINE_RESERVE_SECONDS + 80
+        core(Slow()).answer('Платформа учёта?', run_deadline)
+        self.assertTrue(seen)
+        self.assertLessEqual(seen[0], run_deadline - REFINE_RESERVE_SECONDS + 0.01)  # reserve untouched
+        self.assertLessEqual(seen[0], time.monotonic() + 20.01)                     # stage cap
+        client = Slow()
+        core(client).answer('Платформа учёта?', time.monotonic() + REFINE_RESERVE_SECONDS + 3)  # window < 5 s
+        self.assertEqual(len(client.calls), 1)
+
+    def test_editor_cannot_add_numbers_or_promises_absent_from_sources(self):
+        for bad in ('Мы гарантируем экономию девяносто процентов абсолютно всем организациям без каких-либо условий.',
+                    'Да, платформа собирает показания, подключение займёт 3 дня. Сколько у вас приборов?'):
+            with self.subTest(bad=bad[:30]):
+                result = core(Client(refined=bad)).answer('Платформа учёта?', time.monotonic() + REFINE_RESERVE_SECONDS + 60)
+                self.assertEqual(result.answer, 'Черновой ответ про платформу учёта и показания приборов.')
+
+
 class _quiet:
     def __enter__(self):
         return self
