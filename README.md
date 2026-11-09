@@ -29,6 +29,18 @@ python solution.py
 
 В `DATA_DIR` нужны `questions.csv` с колонками `id,question` и `knowledge-base.zip`. Результат — `submission.csv` в рабочем каталоге. Код выхода: 0 — все вызовы успешны; 2 — есть ошибки модели (строки отмечены недоступностью); 1 — ошибка конфигурации/входа. Модельные ошибки не считаются успешной консультацией.
 
+## Локальная оценка качества (dev)
+
+`eval.py` повторяет схему LLM-судьи организаторов: два раунда со сменой порядка, Match Rate, Win Rate, Score = 0.7·MR + 0.3·WR. Материалы организаторов — в `data/org/` (не в git), результаты — в `work/eval/`. Переменные читаются из окружения или `.env`; `JUDGE_MODEL` задаёт отдельную модель судьи. Каждый прогон — платные вызовы API, только с разрешения Ромы.
+
+```sh
+python eval.py run --out work/eval/v1.csv
+python eval.py judge --answers work/eval/v1.csv                            # против эталона
+python eval.py judge --answers work/eval/v2.csv --baseline work/eval/v1.csv  # A/B версий
+```
+
+В ZIP сабмита `eval.py` не входит.
+
 ## Архив для платформы
 
 ```sh
