@@ -125,13 +125,64 @@ class LengthCutTests(unittest.TestCase):
     def cut(text):
         return httpx.Response(200, json={'choices': [{'message': {'content': text}, 'finish_reason': 'length'}]})
 
-    def test_cut_answer_is_retried_then_trimmed_to_a_full_sentence(self):
+    def test_cut_answer_is_retried_then_rejected_even_with_complete_sentences(self):
         calls = []
         def handler(request):
             calls.append(json.loads(request.content)['max_tokens'])
             return self.cut('Да, можно. Платформа поддерживает приборы. Для расчёта нам понад')
-        self.assertEqual(self.client(handler).generate([], time.monotonic() + 20), 'Да, можно. Платформа поддерживает приборы.')
+        with self.assertRaisesRegex(ProviderError, 'cut off'):
+            self.client(handler).generate([], time.monotonic() + 20)
         self.assertEqual(calls, [1200, 2400])  # default budget, doubled once
+
+    def test_truncated_price_condition_never_becomes_an_unconditional_success(self):
+        calls = []
+        def handler(request):
+            calls.append(json.loads(request.content)['max_tokens'])
+            return self.cut('Стоимость 123 рубля. Только при установленном')
+        with self.assertRaisesRegex(ProviderError, 'cut off'):
+            self.client(handler).generate([], time.monotonic() + 20)
+        self.assertEqual(calls, [1200, 2400])
+
+    @patch('model_client.asyncio.sleep')
+    def test_length_on_last_attempt_fails_explicitly_without_phantom_retry(self, sleep):
+        calls = []
+        responses = iter([httpx.Response(422), httpx.Response(503),
+                          self.cut('Полное предложение. Незавершённое условие')])
+        def handler(request):
+            calls.append(json.loads(request.content)['max_tokens'])
+            return next(responses)
+        with self.assertRaisesRegex(ProviderError, 'cut off'):
+            self.client(handler).generate([], time.monotonic() + 20)
+        self.assertEqual(calls, [1200, 1200, 1200])
+
+    @patch('model_client.asyncio.sleep')
+    def test_reasoning_on_last_attempt_is_reported_as_empty_without_extra_request(self, sleep):
+        responses = iter([httpx.Response(503), httpx.Response(503), self.cut('<think>unfinished')])
+        calls = []
+        def handler(request):
+            calls.append(1)
+            return next(responses)
+        with self.assertRaisesRegex(ProviderError, 'empty answer'):
+            self.client(handler).generate([], time.monotonic() + 20)
+        self.assertEqual(len(calls), 3)
+
+    def test_batch_keeps_safe_fallback_when_price_condition_is_truncated(self):
+        client = self.client(lambda request: self.cut('Стоимость 123 рубля. Только при установленном'))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with ZipFile(root / 'knowledge-base.zip', 'w') as archive:
+                archive.writestr('fixture.md', '# Альфа\nДатчики Альфа измеряют воду. Цена 123 рубля только при установленных приборах.')
+            with (root / 'questions.csv').open('w', encoding='utf-8', newline='') as stream:
+                csv.writer(stream).writerows([('id', 'question'), ('007', 'Датчики Альфа. Контакты оставлять не буду.')])
+            with self.assertLogs('submission', level='ERROR'):
+                failures = solution.run(root, root / 'submission.csv', client.settings, client, budget=5)
+            with (root / 'submission.csv').open(encoding='utf-8', newline='') as stream:
+                rows = list(csv.DictReader(stream))
+        self.assertEqual(failures, 1)
+        self.assertEqual([row['id'] for row in rows], ['007'])
+        self.assertIn('Датчики Альфа измеряют воду.', rows[0]['answer'])
+        self.assertNotIn('123', rows[0]['answer'])
+        self.assertNotIn('оставьте заявку', rows[0]['answer'])
 
     def test_g023_fragment_without_a_sentence_is_an_error_and_budget_never_shrinks(self):
         calls = []
