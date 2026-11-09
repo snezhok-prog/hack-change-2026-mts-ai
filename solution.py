@@ -15,7 +15,7 @@ import time
 from zipfile import BadZipFile
 from consultant import Consultant
 from model_client import ModelClient, ProviderError, Settings, env_number, env_value
-from retrieval import SearchIndex, load_archive
+from retrieval import HybridIndex, SearchIndex, load_archive
 
 LOG = logging.getLogger('submission')
 UNAVAILABLE = 'Сейчас не удалось получить ответ сервиса консультации. Попробуйте позже или обратитесь к специалисту EnergyTool.'
@@ -24,6 +24,7 @@ QUESTION_FILES = ('questions.csv', 'train.csv')
 KB_FILES = ('knowledge-base.zip', 'knowledge_base.zip', 'kb.zip')
 MAX_ANSWER = 10000
 CHECKPOINT_SECONDS = 15.0
+EMBED_BUILD_SECONDS = 120.0
 
 
 def find_input(data_dir: Path, names: tuple[str, ...]) -> Path:
@@ -106,7 +107,11 @@ def run(data_dir: Path, output: Path, settings: Settings | None, client: ModelCl
     core = None
     if client is not None:
         try:
-            core = Consultant(SearchIndex(load_archive(str(find_input(data_dir, KB_FILES)))), client)
+            lexical = SearchIndex(load_archive(str(find_input(data_dir, KB_FILES))))
+            # Dense index build is bounded so a slow embedder cannot eat the answering budget.
+            index = HybridIndex.build(lexical, client, min(deadline, time.monotonic() + EMBED_BUILD_SECONDS))
+            LOG.info('retrieval=%s rerank=%s chunks=%d', 'hybrid' if index.dense else 'bm25', index.rerank_enabled, len(index.chunks))
+            core = Consultant(index, client)
         except (OSError, ValueError, BadZipFile) as error:
             LOG.error('Knowledge base unavailable (%s); writing fallback answers', type(error).__name__)
     pending = [i for i, (_, q) in enumerate(questions) if q.strip()]

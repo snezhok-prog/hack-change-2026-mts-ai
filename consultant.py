@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import re
 import time
 from model_client import ModelClient
-from retrieval import Chunk, SearchIndex, dialogue_query
+from retrieval import Chunk, HybridIndex, SearchIndex, dialogue_query
 
 SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. Клиенты — бизнес, энергетики, СНТ,
 сетевые организации; часто без технических знаний. Говори от лица компании («мы»,
@@ -59,7 +59,7 @@ def tidy(answer: str) -> str:
 
 
 class Consultant:
-    def __init__(self, index: SearchIndex, client: ModelClient):
+    def __init__(self, index: SearchIndex | HybridIndex, client: ModelClient):
         self.index, self.client = index, client
         self.guards: dict[str, list[Chunk]] = {}
         for chunk in index.chunks:
@@ -93,7 +93,9 @@ class Consultant:
         if len(dialogue) > 60000:
             raise ValueError('Dialogue exceeds 60000 characters')
         started = time.monotonic()
-        hits = self.index.search(dialogue_query(dialogue), self.client.settings.top_k)
+        query, top_k = dialogue_query(dialogue), self.client.settings.top_k
+        hits = (self.index.search(query, top_k, deadline) if isinstance(self.index, HybridIndex)
+                else self.index.search(query, top_k))
         material, sources = self.context(hits)
         user = (f'Материалы базы знаний:\n{material or "(по запросу ничего не найдено)"}\n\n'
                 f'Диалог с клиентом (ответь на последнюю реплику пользователя):\n{dialogue.strip()}')
