@@ -29,8 +29,11 @@ QUERY_SYNONYMS = (
     (r'(?:перв|втор|трет|четв[её]рт|пят|шест)\w* (?:ценов\w* )?категор|ценов\w* категор|\bчетв[её]ртая\b|\bшестая\b',
      'ценовые категории какая выгоднее почасовая цена двухставочная передача', None),  # expansion only (C-020)
 )
-NEGATION_BEFORE = re.compile(r'\b(?:не|без|нет)\b')
-NEGATION_AFTER = re.compile(r'\s*(?:\w+\s+)?(?:не|нет)\b')
+# Only explicit refusals rule a product out (G-022): 'СЭС не работает' or 'не хватает данных
+# для АСКУЭ' still name the product.
+REFUSAL = r'(?:не\s+(?:нужн|подход|интерес|рассматрива|планиру|хотим|хочу)\w*|откаж\w*|откаже\w*)'
+NEGATION_BEFORE = re.compile(REFUSAL + r'\s+(?:\w+\s+){0,2}$|\bбез\s+(?:\w+\s+)?$')
+NEGATION_AFTER = re.compile(r'\s*(?:\w+\s+)?(?:' + REFUSAL + r'|обойд[её]мся)')
 NAMED_PRODUCT_BOOST = 1.6  # a product the client named outranks overview pages listing every product
 STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш даже если этих эти этот хотим хочу'.split())
 
