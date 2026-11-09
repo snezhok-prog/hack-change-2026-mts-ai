@@ -74,6 +74,32 @@ class TruncatedReasoningTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class G021FallbackTests(unittest.TestCase):
+    KB = ('# Услуга Сигма\nЦена услуги Сигма составляет 9000 рублей. Услуга Сигма помогает собирать показания. '
+          'Ориентир действует только при уже установленных совместимых приборах.')
+
+    def run_batch(self, client, settings=None):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with ZipFile(root / 'knowledge-base.zip', 'w') as archive:
+                archive.writestr('s.md', self.KB)
+            with (root / 'questions.csv').open('w', encoding='utf-8', newline='') as stream:
+                csv.writer(stream).writerows([('id', 'question'), ('1', 'Какова цена услуги Сигма? Не хочу оставлять контакты.')])
+            with self.assertLogs('submission', level='INFO'):
+                solution.run(root, root / 'out.csv', settings, client)
+            with (root / 'out.csv').open(encoding='utf-8', newline='') as stream:
+                return next(csv.DictReader(stream))['answer']
+
+    def test_fallback_never_quotes_numbers_or_asks_for_contacts_after_refusal(self):
+        settings = Settings('https://x.invalid/v1', 'k', 'm')
+        client = ModelClient(settings, transport=httpx.MockTransport(lambda request: httpx.Response(401)))
+        self.addCleanup(client.close)
+        for answer in (self.run_batch(None), self.run_batch(client, settings)):
+            self.assertNotIn('9000', answer)
+            self.assertNotIn('заявк', answer)
+            self.assertIn('Услуга Сигма помогает собирать показания.', answer)
+
+
 class LengthCutTests(unittest.TestCase):
     def client(self, handler):
         client = ModelClient(Settings('https://proxy.invalid/v1', 'k', 'm'), transport=httpx.MockTransport(handler))
@@ -103,8 +129,8 @@ class ExtractiveFallbackTests(unittest.TestCase):
                 '## Чего утверждать нельзя\nНазывать итоговую цену станции.')
         index = SearchIndex(split_document('solar.md', text))
         answer = extractive_answer(index, 'Солнечные станции на кровлю?')
-        self.assertIn('Солнечные станции ставим на кровлю. Срок службы около 25 лет.', answer)
-        self.assertNotIn('Третье предложение', answer)
+        self.assertIn('Солнечные станции ставим на кровлю. Третье предложение.', answer)
+        self.assertNotIn('25 лет', answer)  # numbers are never quoted without the model (G-021)
         self.assertNotIn('Называть итоговую цену', extractive_answer(index, 'Называть итоговую цену станции?'))
         self.assertTrue(extractive_answer(index, 'рецепт борща').startswith('Чтобы ответить точнее'))
 

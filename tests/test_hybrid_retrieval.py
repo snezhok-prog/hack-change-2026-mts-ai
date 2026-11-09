@@ -148,6 +148,11 @@ class QueryExpansionTests(unittest.TestCase):
         self.assertEqual(named_products('По фото не подходит, нужен автоматический сбор'), {PLATFORM})
         self.assertEqual(named_products('Без АСКУЭ обойдёмся?'), set())
         self.assertEqual(named_products('Хотим СЭС, но без накопителей'), {SOLAR})
+        # G-022: problems with a named product are not refusals.
+        for text, product in (('СЭС не работает.', SOLAR), ('Не получается настроить СЭС.', SOLAR),
+                              ('Нам не хватает данных для АСКУЭ.', PLATFORM)):
+            self.assertEqual(named_products(text), {product}, text)
+        self.assertEqual(named_products('СЭС нам не интересна'), set())
 
     def test_expansion_only_adds_terms(self):
         self.assertEqual(expand_query('Солнце?'), 'Солнце?')

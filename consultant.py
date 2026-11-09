@@ -77,6 +77,11 @@ def tidy(answer: str) -> str:
 
 FALLBACK_TAIL = ('Чтобы ответить точнее, уточните, пожалуйста, задачу и параметры объекта — '
                  'или оставьте заявку, и специалист EnergyTool разберёт вашу ситуацию.')
+FALLBACK_TAIL_NO_CONTACT = 'Чтобы ответить точнее, уточните, пожалуйста, задачу и параметры объекта.'
+# Numbers carry conditions that may sit in another sentence (G-021): never quote them blindly.
+NUMERIC = re.compile(r'\d|руб|₽|процент|%|\bтыс|\bмлн|\bкВт', re.I)
+CONTACT_REFUSAL = re.compile(r'не\s+(?:хочу|хотим|готов\w*|буду|будем)\s+(?:\w+\s+)?(?:оставл|давать|дава|сообща)|'
+                             r'без\s+(?:телефон|звонк|контакт)|не\s+звонит', re.I)
 TABLE_LINE = re.compile(r'^\s*[-|=+: ]{3,}\s*$')
 
 
@@ -87,6 +92,7 @@ def extractive_answer(index, dialogue: str) -> str:
     'service unavailable' line. Guard sections are rules for the model and are never quoted.
     """
     lexical = getattr(index, 'lexical', index)
+    tail = FALLBACK_TAIL_NO_CONTACT if CONTACT_REFUSAL.search(dialogue) else FALLBACK_TAIL
     for hit in lexical.search(dialogue_query(dialogue), 5):
         if hit.chunk.heading.rsplit(' / ', 1)[-1].strip() in GUARD_HEADINGS:
             continue
@@ -95,14 +101,16 @@ def extractive_answer(index, dialogue: str) -> str:
                  if line.strip() and not TABLE_LINE.match(line) and '|' not in line
                  and not re.search(r'\S {2,}\S', line.strip())]
         text = re.sub(r'\s+', ' ', ' '.join(lines)).strip()
-        # Sentences that start mid-phrase are continuations of wrapped table cells.
-        sentences = [s for s in re.split(r'(?<=[.!?])\s+', text) if s[:1].isupper() or s[:1].isdigit()]
+        # Sentences that start mid-phrase are continuations of wrapped table cells; sentences with
+        # numbers are skipped because their conditions may be elsewhere in the section.
+        sentences = [s for s in re.split(r'(?<=[.!?])\s+', text)
+                     if (s[:1].isupper() or s[:1].isdigit()) and not NUMERIC.search(s)]
         lead = ' '.join(sentences[:2]).strip()
         if len(lead) > 400:
             lead = lead[:400].rsplit(' ', 1)[0] + '…'
         if lead:
-            return f'{lead} {FALLBACK_TAIL}'
-    return FALLBACK_TAIL
+            return f'{lead} {tail}'
+    return tail
 
 
 class Consultant:
