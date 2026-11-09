@@ -27,7 +27,7 @@ QUERY_SYNONYMS = (
     # Topic hints without a product preference: the client mentions it in passing.
     (r'\bфото\b|\bфотки?\b|присыла\w* фото', 'распознавание показаний приборов учёта по фотографии', None),
     (r'(?:перв|втор|трет|четв[её]рт|пят|шест)\w* (?:ценов\w* )?категор|ценов\w* категор|\bчетв[её]ртая\b|\bшестая\b',
-     'ценовые категории какая выгоднее почасовая цена двухставочная передача', 'ценовые категории'),
+     'ценовые категории какая выгоднее почасовая цена двухставочная передача', None),  # expansion only (C-020)
 )
 NEGATION_BEFORE = re.compile(r'\b(?:не|без|нет)\b')
 NEGATION_AFTER = re.compile(r'\s*(?:\w+\s+)?(?:не|нет)\b')
@@ -175,6 +175,8 @@ CANDIDATES = 30       # per retriever, before fusion
 RRF_K = 60            # standard Reciprocal Rank Fusion constant
 RERANK_POOL = 16      # fused candidates sent to the reranker
 EMBED_BATCH = 32
+QUERY_EMBED_SECONDS = 10.0
+RERANK_SECONDS = 15.0
 
 
 def embed_text(chunk: Chunk) -> str:
@@ -222,8 +224,9 @@ class HybridIndex:
         if not self.dense or not query.strip():
             return lexical[:limit]
         deadline = deadline if deadline is not None else time.monotonic() + 30
+        # Optional stages get short deadlines so a slow embedder/reranker cannot starve generation.
         try:
-            q = normalize(self.client.embed([query], deadline)[0])
+            q = normalize(self.client.embed([query], min(deadline, time.monotonic() + QUERY_EMBED_SECONDS))[0])
         except Exception as error:
             LOG.warning('Query embedding failed (%s); using BM25', type(error).__name__)
             return lexical[:limit]
@@ -240,7 +243,8 @@ class HybridIndex:
         if self.rerank_enabled:
             pool = order[:RERANK_POOL]
             try:
-                ranked = self.client.rerank(query, [embed_text(self.chunks[i])[:2000] for i in pool], deadline)
+                ranked = self.client.rerank(query, [embed_text(self.chunks[i])[:2000] for i in pool],
+                                            min(deadline, time.monotonic() + RERANK_SECONDS))
                 order = [pool[r] for r in ranked] + [i for i in pool if i not in {pool[r] for r in ranked}] + order[RERANK_POOL:]
             except Exception as error:
                 LOG.warning('Reranker disabled (%s)', type(error).__name__)
