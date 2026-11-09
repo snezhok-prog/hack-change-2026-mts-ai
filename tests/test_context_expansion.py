@@ -8,6 +8,13 @@ from retrieval import Chunk, Hit, HybridIndex, SearchIndex, split_document
 
 
 class ContextExpansionTests(unittest.TestCase):
+    # Fixtures are sized for these limits; production values may differ (exp/ctx-plus).
+    def setUp(self):
+        for name, value in (('CONTEXT_LIMIT', 14000), ('CONTEXT_EXPANSION_LIMIT', 4000)):
+            patcher = patch(f'consultant.{name}', value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_preserves_baseline_and_complete_guards_while_adding_whole_section(self):
         base = Chunk('a.md', 'Alpha / Overview', 'signal overview')
         extra = Chunk('a.md', 'Alpha / Details', 'signal detail with a binding condition at the end.')
