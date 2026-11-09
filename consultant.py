@@ -34,10 +34,16 @@ SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. �
 нескольких частей. Сплошной текст: без списков, заголовков, Markdown, ссылок на фрагменты,
 файлы или «базу знаний», без вступлений и повторения вопроса.
 
+ПРЯМОЙ ОТВЕТ. Факт, явно подтверждённый материалами, сообщай прямо и применяй к
+ситуации клиента. Не заменяй имеющийся ответ предложением обратиться к специалисту.
+Сохраняй все влияющие на применимость условия и степень уверенности источника:
+«обычно», «может», «в некоторых случаях» не означают гарантию. Не добавляй собственных
+оговорок, которых нет в материалах. Если ответа действительно нет, соблюдай ГРАНИЦЫ.
+
 ЧИСЛА И ПРОДУКТЫ. Каждый блок материалов озаглавлен продуктом и разделом. Число (цену,
 срок, порог, ориентир) приводи только вместе со всеми условиями и оговорками, при которых
 оно действует в материалах (например «при уже установленных приборах», «ориентир для
-типовой станции»); если условия не помещаются в ответ — не называй число. Цены, сроки,
+типовой станции»); сократи вводные, но не опускай условия. Ради существенных условий можно выйти за обычную длину ответа. Цены, сроки,
 пороги и ориентиры относятся только к тому продукту, в блоке которого указаны: не переноси
 их на другой продукт и не считай стоимость или экономию сам, даже если клиент просит
 «придумать» или «прикинуть». Присоединённая мощность объекта — не мощность станции или
@@ -130,11 +136,13 @@ class Consultant:
 
     def context(self, hits, query: str = '') -> tuple[str, tuple[dict, ...]]:
         blocks, sources, used, seen = [], [], 0, set()
+        retrieved = []
         for hit in hits:
             chunk = hit.chunk
             if used + len(chunk.text) > CONTEXT_LIMIT and blocks:
                 break
             seen.add((chunk.source, chunk.heading, chunk.text))
+            retrieved.append(chunk)
             used += len(chunk.text)
             blocks.append(f'### {chunk.heading or chunk.source}\n{chunk.text.strip()}')
             sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
@@ -151,8 +159,21 @@ class Consultant:
         material = '\n\n'.join(blocks)
         if not query or not sources or len(material) >= CONTEXT_LIMIT:
             return material, tuple(sources)
-        # Fill remaining space from one relevant document already represented by its guards.
-        # Rank documents by their three strongest lexical hits; never add a new product here.
+        # A retrieved subsection can depend on its parent's facts. Complete intermediate
+        # parents first, without adding the generic document introduction or a new product.
+        by_heading = defaultdict(list)
+        for chunk in self.index.chunks:
+            by_heading[(chunk.source, chunk.heading)].append(chunk)
+        candidates = []
+        ancestor_headings = set()
+        for chunk in retrieved:
+            parts = chunk.heading.split(' / ')
+            for count in range(len(parts) - 1, 1, -1):
+                key = (chunk.source, ' / '.join(parts[:count]))
+                ancestor_headings.add(key)
+                parents = by_heading.get(key, [])
+                candidates.append((parents, 0.0, True))
+        # Fill the rest from the document with the three strongest lexical hits.
         lexical = getattr(self.index, 'lexical', self.index)
         ranked = lexical.search(query, len(lexical.chunks))
         documents = {source['document'] for source in sources}
@@ -160,22 +181,27 @@ class Consultant:
         for hit in ranked[:30]:
             if hit.chunk.source in documents:
                 scores[hit.chunk.source].append(hit.score)
-        if not scores:
-            return material, tuple(sources)
-        leading = max(scores, key=lambda source: (sum(scores[source][:3]), source))
+        if scores:
+            leading = max(scores, key=lambda source: (sum(scores[source][:3]), source))
+            # Ancestors have exactly one admission path: a skipped atomic group must not
+            # re-enter as an individually ranked fragment without its qualifying tail.
+            candidates.extend(([hit.chunk], hit.score, False) for hit in ranked
+                              if hit.chunk.source == leading
+                              and (hit.chunk.source, hit.chunk.heading) not in ancestor_headings)
         budget = min(CONTEXT_LIMIT, len(material) + CONTEXT_EXPANSION_LIMIT)
-        for hit in ranked:
-            chunk = hit.chunk
-            identity = (chunk.source, chunk.heading, chunk.text)
-            if chunk.source != leading or identity in seen:
+        for group, score, ancestor in candidates:
+            pending = [chunk for chunk in dict.fromkeys(group)
+                       if (chunk.source, chunk.heading, chunk.text) not in seen]
+            additions = [f'\n\n### {chunk.heading or chunk.source}\n{chunk.text.strip()}' for chunk in pending]
+            # All fragments of an ancestor travel together: its last fragment may qualify
+            # an earlier claim. Lexical extras remain independent, as before.
+            if len(material) + sum(map(len, additions)) > budget:
                 continue
-            block = f'\n\n### {chunk.heading or chunk.source}\n{chunk.text.strip()}'
-            if len(material) + len(block) > budget:
-                continue
-            material += block
-            seen.add(identity)
-            sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
-                            'text': chunk.text, 'score': round(hit.score, 4), 'expanded': True})
+            for chunk, block in zip(pending, additions):
+                material += block
+                seen.add((chunk.source, chunk.heading, chunk.text))
+                sources.append({'id': len(sources) + 1, 'document': chunk.source, 'heading': chunk.heading,
+                                'text': chunk.text, 'score': round(score, 4), 'expanded': True, 'ancestor': ancestor})
         return material, tuple(sources)
 
     def answer(self, dialogue: str, deadline: float) -> Consultation:
