@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EnergyTool — консультант</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body>
+<header><a class="brand" href="/">EnergyTool<span>консультант для бизнеса</span></a><span class="badge">Hack&Change · прототип</span></header>
+<main>
+<section class="conversation" aria-label="Консультация">
+  <div class="toolbar"><div><p class="eyebrow">РАЗБЕРЁМСЯ ВМЕСТЕ</p><h1>Какая задача у вашего бизнеса?</h1></div><button id="new-chat" type="button">Новый диалог</button></div>
+  <p class="intro">Опишите ситуацию своими словами. Уточним детали и найдём подходящее направление.</p>
+  <p id="connection" role="status">Проверяем подключение…</p>
+  <div class="suggestions"><button type="button" data-question="Хотим снизить расходы на электроэнергию. С чего начать?">Снизить расходы</button><button type="button" data-question="Хотим автоматизировать сбор показаний по нескольким объектам.">Наладить учёт</button><button type="button" data-question="Как разобраться с потерями электроэнергии?">Разобраться с потерями</button></div>
+  <div id="messages" role="log" aria-live="polite" aria-label="История текущего диалога"></div>
+  <p id="error" role="alert" hidden></p>
+  <form id="chat-form"><label for="question">Ваш вопрос</label><textarea id="question" required maxlength="4000" rows="3" placeholder="Например: у нас три склада, счета выросли, а расход почти не изменился"></textarea><div class="composer-footer"><label class="check"><input id="debug" type="checkbox"> Показывать источники и время</label><button class="primary" id="send" type="submit">Отправить</button></div></form>
+</section>
+<aside>
+  <section class="lead-panel"><p class="eyebrow">СЛЕДУЮЩИЙ ШАГ</p><h2>Обсудить со специалистом</h2><p>После консультации можно сохранить заявку с контекстом разговора.</p><p class="note">Учебный прототип: вводите только выдуманные контакты. Заявка сохраняется здесь, без отправки в МТС.</p>
+  <form id="lead-form"><label for="name">ФИО</label><input id="name" name="name" required minlength="2" maxlength="150" autocomplete="off"><label for="phone">Телефон</label><input id="phone" name="phone" type="tel" required minlength="10" maxlength="25" autocomplete="off"><label for="company">Компания</label><input id="company" name="company" required minlength="2" maxlength="200" autocomplete="off"><label class="check"><input id="test-data" type="checkbox" required> Подтверждаю: контакты выдуманные</label><button id="save-lead" type="submit">Сохранить заявку</button></form><p id="lead-status" role="status"></p><pre id="lead-summary" hidden></pre></section>
+  <details class="review-panel"><summary>История для проверки</summary><p>Архив включает диалоги без заявки. Доступ — по ключу проверяющего.</p><label for="admin-token">Ключ проверяющего</label><input type="password" id="admin-token" autocomplete="off"><button id="load-archive" type="button">Открыть архив</button><div id="archive-status" role="status"></div><div id="archive-list"></div><pre id="archive-detail" hidden></pre></details>
+</aside>
+</main><footer>Ответы по материалам базы знаний · Окончательные условия уточняет специалист</footer>
+</body></html>
