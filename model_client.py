@@ -24,22 +24,47 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> 'Settings':
-        def first(*names: str) -> str:
-            return next((os.environ[n].strip() for n in names if os.environ.get(n, '').strip()), '')
-        base = first('LLM_BASE_URL', 'OPENAI_BASE_URL').rstrip('/')
-        key = first('LLM_API_KEY', 'OPENAI_API_KEY')
-        model = first('LLM_MODEL', 'OPENAI_MODEL', 'GEN_MODEL')
-        if not base or not key or not model:
-            raise ValueError('Set LLM_BASE_URL, LLM_API_KEY and LLM_MODEL (or documented aliases)')
+        """Platform-tolerant: unset, empty or placeholder values (VALUE == NAME) fall back to
+        defaults; numbers are clamped instead of rejected. Only a missing endpoint/key or an
+        unsafe URL raises, and the batch entrypoint still writes a complete CSV in that case."""
+        base = env_first('LLM_BASE_URL', 'OPENAI_BASE_URL', 'BASE_URL').rstrip('/')
+        key = env_first('LLM_API_KEY', 'OPENAI_API_KEY')
+        # Same default as the organizer sample; the platform normally provides the ID.
+        model = env_first('LLM_MODEL', 'OPENAI_MODEL', 'GEN_MODEL') or DEFAULT_MODEL
+        if not base or not key:
+            raise ValueError('Set LLM_BASE_URL and LLM_API_KEY (or documented aliases)')
         parsed = urlsplit(base)
         if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError('LLM_BASE_URL must be an HTTP(S) base URL without credentials, query or fragment')
-        result = cls(base, key, model, int(first('MAX_TOKENS') or '1200'), float(first('TEMPERATURE') or '0'), float(first('REQUEST_TIMEOUT') or '45'), int(first('MAX_WORKERS') or '3'), int(first('TOP_K') or '8'))
-        if not 1 <= result.max_tokens <= 8192 or not 1 <= result.workers <= 8 or not 1 <= result.top_k <= 30:
-            raise ValueError('MAX_TOKENS, MAX_WORKERS or TOP_K outside supported limits')
-        if not math.isfinite(result.temperature) or not 0 <= result.temperature <= 2 or not math.isfinite(result.timeout) or not 1 <= result.timeout <= 120:
-            raise ValueError('Invalid TEMPERATURE or REQUEST_TIMEOUT')
-        return result
+        return cls(base, key, model,
+                   env_number('MAX_TOKENS', 1200, 128, 8192, int),
+                   env_number('TEMPERATURE', 0.0, 0.0, 2.0, float),
+                   env_number('REQUEST_TIMEOUT', 45.0, 1.0, 120.0, float),
+                   env_number('MAX_WORKERS', 3, 1, 8, int),
+                   env_number('TOP_K', 8, 1, 30, int))
+
+
+DEFAULT_MODEL = 'qwen/qwen3.8-27b'
+
+
+def env_value(name: str) -> str:
+    """Environment value, treating empty strings and unfilled placeholders (VALUE == NAME) as unset."""
+    value = os.environ.get(name, '').strip()
+    return '' if value == name else value
+
+
+def env_first(*names: str) -> str:
+    return next((v for v in map(env_value, names) if v), '')
+
+
+def env_number(name: str, default, lower, upper, kind):
+    try:
+        value = kind(float(env_value(name))) if env_value(name) else default
+    except (ValueError, OverflowError):
+        return default
+    if isinstance(value, float) and not math.isfinite(value):
+        return default
+    return max(lower, min(upper, value))
 
 
 class ModelClient:

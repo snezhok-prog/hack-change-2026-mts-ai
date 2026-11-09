@@ -8,7 +8,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 import httpx
 from model_client import ModelClient, ProviderError, Settings
-from solution import read_questions, run, write_submission
+from solution import EMPTY_QUESTION, UNAVAILABLE, read_questions, run, write_submission
 
 
 class SubmissionTests(unittest.TestCase):
@@ -51,10 +51,12 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual([r['id'] for r in rows], ['007', 'two'])
         self.assertEqual(rows[0]['answer'], 'Ответ, с "кавычками"\nНовая строка [1]')
 
-    def test_duplicate_ids_are_rejected(self):
-        self.questions([('1', 'a'), ('1', 'b')])
-        with self.assertRaisesRegex(ValueError, 'Duplicate'):
-            read_questions(self.root / 'questions.csv')
+    def test_duplicate_ids_keep_first_and_extra_columns_are_ignored(self):
+        with (self.root / 'questions.csv').open('w', encoding='utf-8-sig', newline='') as stream:
+            writer = csv.writer(stream)
+            writer.writerow([' ID ', 'Question', 'category'])
+            writer.writerows([('1', 'a', 'x'), ('1', 'b', 'y'), ('', 'no id', 'z'), ('2', '', 'w')])
+        self.assertEqual(read_questions(self.root / 'questions.csv'), [('1', 'a'), ('2', '')])
 
     def test_output_validation_preserves_existing_file(self):
         output = self.root / 'out.csv'
@@ -113,10 +115,48 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(settings.model, 'organizer-model')
             self.assertEqual(settings.base_url, 'https://example.invalid/v1')
 
-    def test_nonfinite_parameters_rejected(self):
-        with patch.dict('os.environ', {'LLM_BASE_URL': 'https://example.invalid', 'LLM_API_KEY': 'test', 'LLM_MODEL': 'test', 'TEMPERATURE': 'nan'}, clear=True):
-            with self.assertRaises(ValueError):
-                Settings.from_env()
+    def test_invalid_numbers_and_placeholders_fall_back_instead_of_aborting(self):
+        env = {'LLM_BASE_URL': 'https://example.invalid', 'LLM_API_KEY': 'test', 'LLM_MODEL': 'LLM_MODEL',
+               'TEMPERATURE': 'nan', 'MAX_TOKENS': 'MAX_TOKENS', 'TOP_K': '50', 'MAX_WORKERS': '16', 'REQUEST_TIMEOUT': 'inf'}
+        with patch.dict('os.environ', env, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual((settings.model, settings.temperature, settings.max_tokens, settings.top_k, settings.workers, settings.timeout),
+                         ('qwen/qwen3.8-27b', 0.0, 1200, 30, 8, 45.0))
+        with patch.dict('os.environ', {'BASE_URL': 'https://example.invalid/v1', 'OPENAI_API_KEY': 'test', 'MAX_TOKENS': '16384'}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual((settings.base_url, settings.max_tokens), ('https://example.invalid/v1', 8192))
+
+    def read_output(self):
+        with (self.root / 'out.csv').open(encoding='utf-8', newline='') as stream:
+            return {r['id']: r['answer'] for r in csv.DictReader(stream)}
+
+    def test_missing_model_config_still_writes_every_id(self):
+        self.questions([('1', 'Датчики?'), ('2', 'Батареи?')])
+        failures = run(self.root, self.root / 'out.csv', None, None)
+        self.assertEqual(failures, 2)
+        self.assertEqual(set(self.read_output().values()), {UNAVAILABLE})
+
+    def test_missing_knowledge_base_and_file_aliases(self):
+        (self.root / 'knowledge-base.zip').rename(self.root / 'kb.zip')
+        with (self.root / 'train.csv').open('w', encoding='utf-8', newline='') as stream:
+            csv.writer(stream).writerows([('id', 'question'), ('7', 'Датчики Альфа?')])
+        ok = lambda r: httpx.Response(200, json={'choices': [{'message': {'content': 'Ответ'}}]})
+        self.assertEqual(run(self.root, self.root / 'out.csv', self.settings, self.client(ok)), 0)
+        self.assertEqual(self.read_output(), {'7': 'Ответ'})
+        (self.root / 'kb.zip').unlink()
+        self.assertEqual(run(self.root, self.root / 'out.csv', self.settings, self.client(ok)), 1)
+        self.assertEqual(self.read_output(), {'7': UNAVAILABLE})
+
+    def test_unexpected_error_and_empty_question_do_not_abort_the_batch(self):
+        self.questions([('1', 'Датчики Альфа?'), ('2', 'Батареи Бета?'), ('3', '   ')])
+        def handler(request):
+            if 'Бета' in request.content.decode('utf-8'):
+                raise httpx.DecodingError('broken body')  # not a ProviderError
+            return httpx.Response(200, json={'choices': [{'message': {'content': 'Ответ'}}]})
+        with self.assertLogs('submission', level='ERROR'):
+            failures = run(self.root, self.root / 'out.csv', self.settings, self.client(handler))
+        self.assertEqual(failures, 1)
+        self.assertEqual(self.read_output(), {'1': 'Ответ', '2': UNAVAILABLE, '3': EMPTY_QUESTION})
 
 
 if __name__ == '__main__':
