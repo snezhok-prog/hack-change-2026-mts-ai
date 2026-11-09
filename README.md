@@ -41,7 +41,7 @@ python scripts/build_submission.py
 
 ## Docker для локального веб-демо
 
-Dockerfile и Compose проверены в GitHub Actions на Linux: сборка, запуск HTTP и сохранение SQLite после перезапуска. Локальная установка Docker на Windows ещё выполняется.
+Dockerfile и Compose проверены в GitHub Actions на Linux: сборка, запуск HTTP и сохранение SQLite после перезапуска. Локальный Docker установлен на Windows; движок остановлен из-за малого свободного места на системном диске. Проверка контейнера на этой Windows пока не завершена.
 
 1. Создайте каталог `data` и положите предоставленный организаторами `knowledge-base.zip` внутрь.
 2. Скопируйте `.env.example` в `.env`, заполните доступ к модели и собственный ключ архива `ADMIN_TOKEN`.
