@@ -100,6 +100,21 @@ class G021FallbackTests(unittest.TestCase):
             self.assertIn('Услуга Сигма помогает собирать показания.', answer)
 
 
+class C023ContactRefusalTests(unittest.TestCase):
+    def test_refusal_word_orders_and_positive_controls(self):
+        index = SearchIndex(split_document('s.md', '# Услуга Сигма\nУслуга Сигма помогает собирать показания.'))
+        for text in ('Контакты оставлять не буду, заявку не предлагайте. Что умеет услуга Сигма?',
+                     'Телефон пока давать не готов. Что умеет услуга Сигма?', 'Без звонков. Что умеет услуга Сигма?'):
+            self.assertNotIn('заявк', extractive_answer(index, text), text)
+        for text in ('Готов оставить заявку. Что умеет услуга Сигма?', 'Что умеет услуга Сигма?'):
+            self.assertIn('заявк', extractive_answer(index, text), text)
+
+    def test_prompt_matches_reference_length_and_lead_policy(self):
+        from consultant import SYSTEM
+        self.assertIn('30–55 слов', SYSTEM)
+        self.assertIn('Не предлагай заявку или звонок в обычном ответе', SYSTEM)
+
+
 class LengthCutTests(unittest.TestCase):
     def client(self, handler):
         client = ModelClient(Settings('https://proxy.invalid/v1', 'k', 'm'), transport=httpx.MockTransport(handler))
