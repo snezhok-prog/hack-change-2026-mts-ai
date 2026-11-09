@@ -113,6 +113,7 @@ class C023ContactRefusalTests(unittest.TestCase):
         from consultant import SYSTEM
         self.assertIn('30–55 слов', SYSTEM)
         self.assertIn('Не предлагай заявку или звонок в обычном ответе', SYSTEM)
+        self.assertIn('утверждай его прямо', SYSTEM)  # references state base facts without hedging
 
 
 class LengthCutTests(unittest.TestCase):

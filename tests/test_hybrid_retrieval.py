@@ -139,7 +139,7 @@ class QueryExpansionTests(unittest.TestCase):
         self.assertTrue(any(h.startswith('Распознавание') for h in photo))
         self.assertEqual(named_products('Кто-то присылает фото'), set())  # hint only, no product preference
         self.assertTrue(index.search('Кажется, четвёртая. Что проверить в счёте?', 1)[0].chunk.heading.startswith('Ценовые категории'))
-        self.assertIn('вместе со всеми условиями', SYSTEM)
+        self.assertIn('вместе с его ключевым условием', SYSTEM)
 
     def test_g020_whole_word_acronyms_and_negation(self):
         self.assertEqual(named_products('Расходы растут. Как разобраться в счёте?'), set())   # 'асту' inside 'растут'
