@@ -165,10 +165,13 @@ class Consultant:
         for chunk in self.index.chunks:
             by_heading[(chunk.source, chunk.heading)].append(chunk)
         candidates = []
+        ancestor_headings = set()
         for chunk in retrieved:
             parts = chunk.heading.split(' / ')
             for count in range(len(parts) - 1, 1, -1):
-                parents = by_heading.get((chunk.source, ' / '.join(parts[:count])), [])
+                key = (chunk.source, ' / '.join(parts[:count]))
+                ancestor_headings.add(key)
+                parents = by_heading.get(key, [])
                 candidates.append((parents, 0.0, True))
         # Fill the rest from the document with the three strongest lexical hits.
         lexical = getattr(self.index, 'lexical', self.index)
@@ -180,7 +183,11 @@ class Consultant:
                 scores[hit.chunk.source].append(hit.score)
         if scores:
             leading = max(scores, key=lambda source: (sum(scores[source][:3]), source))
-            candidates.extend(([hit.chunk], hit.score, False) for hit in ranked if hit.chunk.source == leading)
+            # Ancestors have exactly one admission path: a skipped atomic group must not
+            # re-enter as an individually ranked fragment without its qualifying tail.
+            candidates.extend(([hit.chunk], hit.score, False) for hit in ranked
+                              if hit.chunk.source == leading
+                              and (hit.chunk.source, hit.chunk.heading) not in ancestor_headings)
         budget = min(CONTEXT_LIMIT, len(material) + CONTEXT_EXPANSION_LIMIT)
         for group, score, ancestor in candidates:
             pending = [chunk for chunk in dict.fromkeys(group)

@@ -122,6 +122,23 @@ class ContextExpansionTests(unittest.TestCase):
         self.assertIn(parent.text, material)
         self.assertLessEqual(len(material) - len(original), 4000)
 
+    def test_skipped_ancestor_cannot_reenter_as_a_lexical_fragment(self):
+        child = Chunk('a.md', 'Alpha / Details / Target', 'signal question')
+        first = Chunk('a.md', 'Alpha / Details', 'signal ' * 100 + 'Цена составляет 9000 рублей. ' + 'x' * 1900)
+        second = Chunk('a.md', 'Alpha / Details', 'y' * 2600 + ' Применимо только при установленных совместимых приборах.')
+        extra = Chunk('a.md', 'Alpha / Independent', 'signal useful independent detail.')
+        core = Consultant(SearchIndex([child, first, second, extra]), None)
+        original, original_sources = core.context([Hit(child, 1)])
+        material, sources = core.context([Hit(child, 1)], query='signal')
+        self.assertTrue(material.startswith(original))
+        self.assertEqual(sources[:len(original_sources)], original_sources)
+        self.assertNotIn(first.text, material)
+        self.assertNotIn(second.text, material)
+        self.assertNotIn('9000', material)
+        self.assertFalse(any(source['heading'] == first.heading for source in sources))
+        self.assertIn(extra.text, material)
+        self.assertLessEqual(len(material) - len(original), 4000)
+
     def test_split_parent_is_atomic_and_does_not_displace_smaller_ancestor(self):
         condition = 'Only when existing compatible equipment is installed.'
         long_parent = 'Price 123 applies. ' + 'Background requirement. ' * 210 + condition
