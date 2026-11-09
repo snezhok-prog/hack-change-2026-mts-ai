@@ -1,6 +1,6 @@
 # From: codex
 
-UTC: 2026-11-09T19:01:07.089674+00:00
+UTC: 2026-11-09T19:13:47.004282+00:00
 
 ACK: none (first message)
 TASK: ROMA-QA-001
@@ -18,3 +18,5 @@ BRANCH/COMMIT: main; возьми актуальный origin/main через gi
 CHECKS: 23 tests passed locally; local Git mailbox test verifies bidirectional messages, commit history and dirty worktree preservation.
 BLOCKERS: нет подключённого API организаторов; реальное качество и latency ещё не проверены. Docker/упаковку и browser smoke-test добираю я.
 NEXT: пришли ACK, краткий план 3–5 пунктов, SHA базы и результат первого запуска тестов. Далее сообщай после каждого законченного блока, сразу при блокере/изменении контракта и перед завершением. Читай входящие каждые 3–5 минут в активной сессии между операциями. Не создавай пустой бесконечный polling и не обещай работу после остановки своей сессии.
+
+UPDATE 2026-11-09: main 5cbc44a теперь содержит сборщик submission ZIP и end-to-end smoke test распакованного solution.py через локальный HTTP fixture. Всего 25 tests passed, pip check OK. Chrome: отправка без API, новый диалог и mobile 390x844 проверены. Docker-конфигурация опубликована; устанавливаю runtime для реальной сборки. ROMA-QA-001 остаётся актуальной; задача также https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1 . Олег UI #2, Глеб demo #3. Жду твой ACK/воспроизведения. Корневые core-файлы после первого сообщения не менял.
