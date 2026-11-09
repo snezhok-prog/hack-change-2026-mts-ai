@@ -75,8 +75,13 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual(reader.fieldnames, ['id', 'answer'])
             self.assertEqual([r['id'] for r in rows], ['007', 'abc'])
             self.assertEqual(rows[0]['answer'], 'Тестовый ответ, с "кавычками"\nи переносом')
-            self.assertEqual(len(calls), 2)
-            for path, authorization, payload in calls:
+            # One embeddings attempt (fails on this chat-only fixture -> BM25 fallback), then one chat call per question.
+            embedding_calls = [c for c in calls if c[0] == '/v1/embeddings']
+            self.assertEqual(len(embedding_calls), 1)
+            self.assertEqual(embedding_calls[0][2]['model'], 'baai/bge-m3')
+            chat_calls = [c for c in calls if c[0] != '/v1/embeddings']
+            self.assertEqual(len(chat_calls), 2)
+            for path, authorization, payload in chat_calls:
                 self.assertEqual(path, '/v1/chat/completions')
                 self.assertEqual(authorization, 'Bearer synthetic-fixture-key')
                 self.assertEqual(payload['model'], 'fixture-model')

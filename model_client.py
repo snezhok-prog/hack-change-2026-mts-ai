@@ -25,6 +25,8 @@ class Settings:
     timeout: float = 45.0
     workers: int = 3
     top_k: int = 8
+    emb_model: str = ''        # empty: dense retrieval off
+    reranker_model: str = ''   # empty: no reranking
 
     @classmethod
     def from_env(cls) -> 'Settings':
@@ -45,10 +47,13 @@ class Settings:
                    env_number('TEMPERATURE', 0.0, 0.0, 2.0, float),
                    env_number('REQUEST_TIMEOUT', 45.0, 1.0, 120.0, float),
                    env_number('MAX_WORKERS', 3, 1, 8, int),
-                   env_number('TOP_K', 8, 1, 30, int))
+                   env_number('TOP_K', 8, 1, 30, int),
+                   env_first('EMB_MODEL') or DEFAULT_EMB_MODEL,
+                   env_first('RERANKER_MODEL'))
 
 
 DEFAULT_MODEL = 'qwen/qwen3.8-27b'
+DEFAULT_EMB_MODEL = 'baai/bge-m3'  # organizer sample default; also served by OpenRouter
 THINK_BLOCK = re.compile(r'<think>.*?</think>', re.S | re.I)
 
 
@@ -120,18 +125,69 @@ class ModelClient:
         await asyncio.gather(*pending, return_exceptions=True)
         await self.client.aclose()
 
-    def generate(self, messages: list[dict[str, str]], deadline: float) -> str:
+    def _run(self, coroutine, deadline: float):
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ProviderError('Run time budget exhausted')
-        if self.closed:
-            raise ProviderError('Model client is closed')
-        future = asyncio.run_coroutine_threadsafe(self._generate(messages, deadline), self.loop)
+        if remaining <= 0 or self.closed:
+            coroutine.close()
+            raise ProviderError('Run time budget exhausted' if remaining <= 0 else 'Model client is closed')
+        future = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
         try:
             return future.result(timeout=remaining)
         except FutureTimeout:
             future.cancel()
             raise ProviderError('Run time budget exhausted') from None
+
+    def generate(self, messages: list[dict[str, str]], deadline: float) -> str:
+        return self._run(self._generate(messages, deadline), deadline)
+
+    def embed(self, texts: list[str], deadline: float) -> list[list[float]]:
+        """POST /embeddings; vectors returned in input order."""
+        data = self._run(self._post_json('/embeddings', {'model': self.settings.emb_model, 'input': texts}, deadline), deadline)
+        try:
+            items = sorted(data['data'], key=lambda item: int(item.get('index', 0)))
+            vectors = [[float(x) for x in item['embedding']] for item in items]
+        except (KeyError, TypeError, ValueError):
+            raise ProviderError('Invalid embeddings response schema') from None
+        if len(vectors) != len(texts) or not vectors or len({len(v) for v in vectors}) != 1:
+            raise ProviderError('Embeddings response does not match the input')
+        return vectors
+
+    def rerank(self, query: str, documents: list[str], deadline: float) -> list[int]:
+        """POST /rerank; document indices from most to least relevant."""
+        data = self._run(self._post_json('/rerank', {'model': self.settings.reranker_model, 'query': query,
+                                                     'documents': documents, 'top_n': len(documents)}, deadline), deadline)
+        try:
+            entries = data.get('results', data.get('data', []))
+            order = [int(e['index']) for e in sorted(entries, key=lambda e: -float(e.get('relevance_score', e.get('score', 0))))]
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ProviderError('Invalid rerank response schema') from None
+        order = [i for i in dict.fromkeys(order) if 0 <= i < len(documents)]
+        if not order:
+            raise ProviderError('Empty rerank response')
+        return order
+
+    async def _post_json(self, path: str, payload: dict, deadline: float) -> dict:
+        for attempt in range(2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProviderError('Run time budget exhausted')
+            try:
+                response = await self.client.post(self.settings.base_url + path,
+                    headers={'Authorization': 'Bearer ' + self.settings.api_key}, json=payload,
+                    timeout=httpx.Timeout(min(self.settings.timeout, remaining), connect=min(10, remaining)))
+            except httpx.TransportError:
+                if attempt == 1:
+                    raise ProviderError('Provider transport failure') from None
+            else:
+                if response.is_success:
+                    try:
+                        return response.json()
+                    except ValueError:
+                        raise ProviderError('Invalid provider response') from None
+                if response.status_code not in {408, 429, 500, 502, 503, 504} or attempt == 1:
+                    raise ProviderError(f'Provider HTTP {response.status_code}')
+            await asyncio.sleep(min(.5, max(0, deadline - time.monotonic())))
+        raise ProviderError('Provider did not return an answer')
 
     async def _generate(self, messages: list[dict[str, str]], deadline: float) -> str:
         for attempt in range(3):

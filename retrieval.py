@@ -1,11 +1,14 @@
 """Local lexical retrieval over complete Markdown sections; no model downloads."""
 from collections import Counter
 from dataclasses import dataclass
+import logging
 import math
 from pathlib import PurePosixPath
 import re
+import time
 from zipfile import ZipFile
 
+LOG = logging.getLogger('retrieval')
 STOP = set('и в во на с со а но или для по из у к от до за о об это как что мы вы он она они не да ли бы же то уже есть нас вас мне нам ваш наш'.split())
 
 
@@ -113,3 +116,80 @@ def dialogue_query(text: str) -> str:
     turns = re.split(r'(?:^|\n|\s)(Пользователь|Ассистент|User|Assistant):\s*', text, flags=re.I)
     users = [turns[i + 1].strip() for i in range(1, len(turns) - 1, 2) if turns[i].lower() in {'пользователь', 'user'}]
     return '\n'.join(users[-3:]) if users else text
+
+
+CANDIDATES = 30       # per retriever, before fusion
+RRF_K = 60            # standard Reciprocal Rank Fusion constant
+RERANK_POOL = 16      # fused candidates sent to the reranker
+EMBED_BATCH = 32
+
+
+def embed_text(chunk: Chunk) -> str:
+    return f'{chunk.heading}\n{chunk.text}'[:4000]
+
+
+def normalize(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(x * x for x in vector)) or 1.0
+    return [x / norm for x in vector]
+
+
+class HybridIndex:
+    """BM25 + dense (bge-m3) fused with RRF, optionally reranked.
+
+    Every remote step is best-effort: if embeddings are unavailable at build time the
+    index is plain BM25; if a query embedding or the reranker fails, that query falls back
+    to the previous stage. A failing reranker is switched off to save the time budget.
+    """
+
+    def __init__(self, lexical: SearchIndex, client=None, vectors: list[list[float]] | None = None, rerank: bool = False):
+        self.lexical, self.client, self.vectors, self.rerank_enabled = lexical, client, vectors, rerank
+        self.chunks = lexical.chunks
+
+    @classmethod
+    def build(cls, lexical: SearchIndex, client, deadline: float) -> 'HybridIndex':
+        settings = getattr(client, 'settings', None)
+        if settings is None or not getattr(settings, 'emb_model', ''):
+            return cls(lexical)
+        texts = [embed_text(c) for c in lexical.chunks]
+        try:
+            vectors: list[list[float]] = []
+            for start in range(0, len(texts), EMBED_BATCH):
+                vectors.extend(client.embed(texts[start:start + EMBED_BATCH], deadline))
+        except Exception as error:  # any provider/schema problem: keep the lexical index
+            LOG.warning('Dense retrieval disabled (%s)', type(error).__name__)
+            return cls(lexical)
+        return cls(lexical, client, [normalize(v) for v in vectors], bool(getattr(settings, 'reranker_model', '')))
+
+    @property
+    def dense(self) -> bool:
+        return self.vectors is not None
+
+    def search(self, query: str, limit: int = 8, deadline: float | None = None) -> list[Hit]:
+        lexical = self.lexical.search(query, CANDIDATES)
+        if not self.dense or not query.strip():
+            return lexical[:limit]
+        deadline = deadline if deadline is not None else time.monotonic() + 30
+        try:
+            q = normalize(self.client.embed([query], deadline)[0])
+        except Exception as error:
+            LOG.warning('Query embedding failed (%s); using BM25', type(error).__name__)
+            return lexical[:limit]
+        similarity = [sum(a * b for a, b in zip(q, v)) for v in self.vectors]
+        dense = sorted(range(len(self.chunks)), key=lambda i: -similarity[i])[:CANDIDATES]
+        position = {id(chunk): i for i, chunk in enumerate(self.chunks)}
+        fused: dict[int, float] = {}
+        for rank, hit in enumerate(lexical):
+            i = position[id(hit.chunk)]
+            fused[i] = fused.get(i, 0.0) + 1 / (RRF_K + rank + 1)
+        for rank, i in enumerate(dense):
+            fused[i] = fused.get(i, 0.0) + 1 / (RRF_K + rank + 1)
+        order = sorted(fused, key=lambda i: (-fused[i], i))
+        if self.rerank_enabled:
+            pool = order[:RERANK_POOL]
+            try:
+                ranked = self.client.rerank(query, [embed_text(self.chunks[i])[:2000] for i in pool], deadline)
+                order = [pool[r] for r in ranked] + [i for i in pool if i not in {pool[r] for r in ranked}] + order[RERANK_POOL:]
+            except Exception as error:
+                LOG.warning('Reranker disabled (%s)', type(error).__name__)
+                self.rerank_enabled = False
+        return [Hit(self.chunks[i], round(fused[i], 6)) for i in order[:limit]]
