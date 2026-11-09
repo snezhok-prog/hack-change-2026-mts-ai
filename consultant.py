@@ -60,7 +60,7 @@ SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. �
 отправлена.'''
 
 GUARD_HEADINGS = ('Факты, которые можно утверждать', 'Чего утверждать нельзя')
-CONTEXT_LIMIT = 20000   # characters of retrieved text sent to the model (attempt 4: more context = +7 pts)
+CONTEXT_LIMIT = 20000   # characters of retrieved text sent to the model (attempt 4 as a whole — context + rerank — scored +7 pts; this tests the context part)
 CONTEXT_EXPANSION_LIMIT = 8000
 CITATION = re.compile(r'\s*\[(?:\d+(?:\s*[,–-]\s*\d+)*)\]')
 MARKDOWN = re.compile(r'\*\*|__|^\s{0,3}#{1,6}\s+|^\s*[-*•]\s+', re.M)
