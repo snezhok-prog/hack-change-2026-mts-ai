@@ -1,22 +1,74 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EnergyTool — консультант</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#172529">
+<title>EnergyTool — консультант для бизнеса</title>
+<link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
 <body>
-<header><a class="brand" href="/">EnergyTool<span>консультант для бизнеса</span></a><span class="badge">Hack&Change · прототип</span></header>
+<a class="skip-link" href="#question">Перейти к вопросу</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="EnergyTool — новый диалог">
+    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M18 3 7 18h8l-1 11 11-16h-8z"/></svg></span>
+    <span class="brand-name">Energy<span>Tool</span><small>Решения для бизнеса</small></span>
+  </a>
+  <div class="event-lockup"><span class="event-name">Hack<span>&</span>Change <b>2026</b></span><span class="event-divider"></span><span class="case-label">КЕЙС МТС</span><span class="prototype-badge">ПРОТОТИП</span></div>
+</header>
 <main>
 <section class="conversation" aria-label="Консультация">
-  <div class="toolbar"><div><p class="eyebrow">РАЗБЕРЁМСЯ ВМЕСТЕ</p><h1>Какая задача у вашего бизнеса?</h1></div><button id="new-chat" type="button">Новый диалог</button></div>
-  <p class="intro">Опишите ситуацию своими словами. Уточним детали и найдём подходящее направление.</p>
-  <p id="connection" role="status">Проверяем подключение…</p>
-  <div class="suggestions"><button type="button" data-question="Хотим снизить расходы на электроэнергию. С чего начать?">Снизить расходы</button><button type="button" data-question="Хотим автоматизировать сбор показаний по нескольким объектам.">Наладить учёт</button><button type="button" data-question="Как разобраться с потерями электроэнергии?">Разобраться с потерями</button></div>
-  <div id="messages" role="log" aria-live="polite" aria-label="История текущего диалога"></div>
-  <p id="error" role="alert" hidden></p>
-  <form id="chat-form"><label for="question">Ваш вопрос</label><textarea id="question" required maxlength="4000" rows="3" placeholder="Например: у нас три склада, счета выросли, а расход почти не изменился"></textarea><div class="composer-footer"><label class="check"><input id="debug" type="checkbox"> Показывать источники и время</label><button class="primary" id="send" type="submit">Отправить</button></div></form>
+  <div class="workspace-heading">
+    <div><p class="eyebrow"><span></span> ВАШ НАВИГАТОР В ENERGYTOOL</p><h1>От вопроса об энергии<br>к понятному решению<span class="title-dot">.</span></h1></div>
+    <button id="new-chat" class="new-chat" type="button"><span aria-hidden="true">＋</span> Новый диалог</button>
+  </div>
+  <p class="intro">Опишите ситуацию своими словами. Уточним детали, найдём материалы в базе знаний и поможем выбрать следующий шаг.</p>
+  <div class="service-status"><span class="status-dot" aria-hidden="true"></span><p id="connection" role="status">Проверяем подключение…</p><span class="status-caption">КОНСУЛЬТАНТ</span></div>
+  <div class="welcome-panel">
+    <div class="welcome-copy"><span class="section-index">01 / НАЧАЛО</span><h2>С чего начнём?</h2><p>Выберите направление или напишите свой вопрос ниже.</p></div>
+    <div class="energy-art" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="energy-core"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></span><span class="orbit-label">ENERGY / IDEAS / ACTION</span></div>
+  </div>
+  <div class="suggestions" aria-label="Примеры вопросов">
+    <button type="button" data-question="Хотим снизить расходы на электроэнергию. С чего начать?"><span class="suggestion-symbol" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7 10 10M7 17h10V7"/></svg></span><span><strong>Снизить расходы</strong><small>Разобраться в росте счетов</small></span><span class="suggestion-arrow" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></span></button>
+    <button type="button" data-question="Хотим автоматизировать сбор показаний по нескольким объектам."><span class="suggestion-symbol" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10h3v10M11 20V4h3v16M17 20v-7h3v7"/></svg></span><span><strong>Наладить учёт</strong><small>Собрать данные по объектам</small></span><span class="suggestion-arrow" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></span></button>
+    <button type="button" data-question="Как разобраться с потерями электроэнергии?"><span class="suggestion-symbol" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 13 5-5 5 8 4-6 4 2"/></svg></span><span><strong>Найти потери</strong><small>Понять, что проверить</small></span><span class="suggestion-arrow" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></span></button>
+  </div>
+  <div class="chat-surface">
+    <div class="chat-caption"><span>ДИАЛОГ С КОНСУЛЬТАНТОМ</span><span class="session-note">Одна задача — один контекст</span></div>
+    <div id="messages" role="log" aria-live="polite" aria-label="История текущего диалога"></div>
+    <p id="error" role="alert" hidden></p>
+    <form id="chat-form">
+      <label for="question">Расскажите о вашей задаче</label>
+      <textarea id="question" required maxlength="4000" rows="3" aria-describedby="send-help" placeholder="Например: у нас три склада. Счета за электричество выросли — хотим понять почему."></textarea>
+      <div class="composer-footer"><label class="check debug-toggle"><input id="debug" type="checkbox"><span>Источники и время <small>Режим отладки</small></span></label><button class="primary" id="send" type="submit">Отправить</button></div>
+      <p id="send-help" class="input-help">Ctrl+Enter или ⌘+Enter — отправить · Enter — новая строка</p>
+    </form>
+  </div>
+  <div class="trust-note"><span aria-hidden="true">◇</span><p>Ответы опираются на базу знаний. Если сведений недостаточно, консультант предложит уточнение или помощь специалиста.</p></div>
 </section>
 <aside>
-  <section class="lead-panel"><p class="eyebrow">СЛЕДУЮЩИЙ ШАГ</p><h2>Обсудить со специалистом</h2><p>После консультации можно сохранить заявку с контекстом разговора.</p><p class="note">Учебный прототип: вводите только выдуманные контакты. Заявка сохраняется здесь, без отправки в МТС.</p>
-  <form id="lead-form"><label for="name">ФИО</label><input id="name" name="name" required minlength="2" maxlength="150" autocomplete="off"><label for="phone">Телефон</label><input id="phone" name="phone" type="tel" required minlength="10" maxlength="25" autocomplete="off"><label for="company">Компания</label><input id="company" name="company" required minlength="2" maxlength="200" autocomplete="off"><label class="check"><input id="test-data" type="checkbox" required> Подтверждаю: контакты выдуманные</label><button id="save-lead" type="submit">Сохранить заявку</button></form><p id="lead-status" role="status"></p><pre id="lead-summary" hidden></pre></section>
-  <details class="review-panel"><summary>История для проверки</summary><p>Архив включает диалоги без заявки. Доступ — по ключу проверяющего.</p><label for="admin-token">Ключ проверяющего</label><input type="password" id="admin-token" autocomplete="off"><button id="load-archive" type="button">Открыть архив</button><div id="archive-status" role="status"></div><div id="archive-list"></div><pre id="archive-detail" hidden></pre></details>
+  <section class="lead-panel">
+    <div class="lead-heading"><span class="section-index">02 / СЛЕДУЮЩИЙ ШАГ</span><div class="lead-title"><h2>Продолжим<br>со специалистом</h2><span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></span></div><p>Сохраните заявку — контекст разговора останется вместе с ней.</p></div>
+    <div class="lead-content">
+      <ol class="progress-steps" aria-label="Этапы"><li class="active"><span>1</span>Диалог</li><li><span>2</span>Контакты</li><li><span>3</span>Заявка</li></ol>
+      <p class="note"><b>Учебное демо</b> Только выдуманные контакты. Заявка сохраняется в прототипе, без отправки в МТС.</p>
+      <form id="lead-form">
+        <label for="name">ФИО</label><input id="name" name="name" required minlength="2" maxlength="150" autocomplete="off" placeholder="Тестов Тест Тестович">
+        <label for="phone">Телефон</label><input id="phone" name="phone" type="tel" inputmode="tel" required minlength="10" maxlength="25" autocomplete="off" placeholder="+7 (000) 000-00-00">
+        <label for="company">Компания</label><input id="company" name="company" required minlength="2" maxlength="200" autocomplete="off" placeholder="Название учебной компании">
+        <label class="check consent"><input id="test-data" type="checkbox" required><span>Подтверждаю: контакты выдуманные</span></label>
+        <button id="save-lead" type="submit" disabled>Сохранить заявку</button>
+        <p class="form-hint">Доступно после первого ответа консультанта</p>
+      </form>
+      <p id="lead-status" role="status"></p><pre id="lead-summary" hidden></pre>
+    </div>
+  </section>
+  <details class="review-panel"><summary><span class="review-icon" aria-hidden="true">≡</span> История для проверки <span class="disclosure-arrow" aria-hidden="true">＋</span></summary>
+    <div class="review-content"><p>Все сессии, включая диалоги без заявки. Доступ по ключу проверяющего.</p><label for="admin-token">Ключ проверяющего</label><input type="password" id="admin-token" autocomplete="off"><button id="load-archive" type="button">Открыть архив</button><div id="archive-status" role="status"></div><div id="archive-list"></div><pre id="archive-detail" hidden></pre></div>
+  </details>
+  <p class="aside-footnote">Новый диалог начинает отдельную сессию.<br>Предыдущая история сохраняется в архиве.</p>
 </aside>
-</main><footer>Ответы по материалам базы знаний · Окончательные условия уточняет специалист</footer>
-</body></html>
+</main>
+<footer><span class="footer-brand">EnergyTool <b>×</b> Hack&Change</span><span>Консультант для бизнеса · Прототип 2026</span><span>Окончательные условия уточняет специалист</span></footer>
+</body>
+</html>
+
