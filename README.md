@@ -51,9 +51,9 @@ Dockerfile и Compose проверены в GitHub Actions на Linux: сбор�
 
 ## Работа команды
 
-Прочитайте [протокол Codex ↔ Claude](docs/COLLABORATION.md), [архитектуру](docs/ARCHITECTURE.md) и [статус/ограничения](docs/STATUS.md).
+Прочитайте [архитектуру](docs/ARCHITECTURE.md), [план ИИ-ядра](docs/AI-CORE.md) и [статус/ограничения](docs/STATUS.md).
 
-Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`. Почтовые ветки `coordination/*` не являются ветками кода и не сливаются в main.
+Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`.
 
 Задачи первой итерации: [Рома / QA #1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1), [Олег / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
 
