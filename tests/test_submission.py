@@ -74,7 +74,7 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(str(error.exception), 'Provider HTTP 401')
         self.assertNotIn('test-only-key', repr(self.settings))
 
-    @patch('model_client.time.sleep')
+    @patch('model_client.asyncio.sleep')
     def test_transient_failure_retries_are_bounded(self, sleep):
         calls = []
         def handler(request):
