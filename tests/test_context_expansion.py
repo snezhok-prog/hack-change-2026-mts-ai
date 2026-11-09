@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import consultant
 from consultant import Consultant
 from retrieval import Chunk, Hit, HybridIndex, SearchIndex
 
@@ -23,7 +24,7 @@ class ContextExpansionTests(unittest.TestCase):
 
     def test_skips_oversized_section_and_continues_to_smaller_relevant_section(self):
         base = Chunk('a.md', 'Alpha / Overview', 'signal overview')
-        huge = Chunk('a.md', 'Alpha / Large', 'signal ' * 1000)
+        huge = Chunk('a.md', 'Alpha / Large', 'signal ' * (consultant.CONTEXT_EXPANSION_LIMIT // 7 + 100))
         small = Chunk('a.md', 'Alpha / Small', 'signal useful detail.')
         index = SearchIndex([base, huge, small])
         ranked = [hit.chunk for hit in index.search('signal', 3)]
@@ -45,23 +46,24 @@ class ContextExpansionTests(unittest.TestCase):
             expanded, _ = core.context([Hit(base, 1)], query='signal')
         self.assertEqual(len(expanded), exact_size)
 
-    def test_caps_added_material_at_4000_characters(self):
+    def test_caps_added_material_at_expansion_limit(self):
         base = Chunk('a.md', 'Alpha / Overview', 'signal overview')
-        extras = [Chunk('a.md', f'Alpha / Detail {i}', 'signal ' * 350) for i in range(3)]
+        size = (consultant.CONTEXT_EXPANSION_LIMIT // 2 + 300) // 7  # only one such section fits
+        extras = [Chunk('a.md', f'Alpha / Detail {i}', 'signal ' * size) for i in range(3)]
         core = Consultant(SearchIndex([base, *extras]), None)
         original, _ = core.context([Hit(base, 1)])
         expanded, sources = core.context([Hit(base, 1)], query='signal')
         self.assertGreater(len(expanded), len(original))
-        self.assertLessEqual(len(expanded) - len(original), 4000)
+        self.assertLessEqual(len(expanded) - len(original), consultant.CONTEXT_EXPANSION_LIMIT)
         self.assertEqual(len(sources), 2)
 
     def test_adds_nothing_when_baseline_with_guards_already_exceeds_total_budget(self):
         base = Chunk('a.md', 'Alpha / Overview', 'signal overview')
-        guard = Chunk('a.md', 'Alpha / Чего утверждать нельзя', 'Binding condition. ' * 1000)
+        guard = Chunk('a.md', 'Alpha / Чего утверждать нельзя', 'Binding condition. ' * (consultant.CONTEXT_LIMIT // 19 + 100))
         extra = Chunk('a.md', 'Alpha / Details', 'signal detail')
         core = Consultant(SearchIndex([base, guard, extra]), None)
         original, sources = core.context([Hit(base, 1)])
-        self.assertGreater(len(original), 14000)
+        self.assertGreater(len(original), consultant.CONTEXT_LIMIT)
         self.assertEqual(core.context([Hit(base, 1)], query='signal'), (original, sources))
 
     def test_expands_only_a_document_already_present_and_is_deterministic(self):
