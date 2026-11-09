@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import re
 import time
-from model_client import ModelClient
+from model_client import NO_THINK, ModelClient
 from retrieval import Chunk, HybridIndex, SearchIndex, dialogue_query
 
 SYSTEM = '''Ты — консультант МТС EnergyTool на сайте. Клиенты — бизнес, энергетики, СНТ,
@@ -73,6 +73,36 @@ def tidy(answer: str) -> str:
     return re.sub(r'[ \t]+', ' ', re.sub(r'\n{3,}', '\n\n', answer)).strip()
 
 
+FALLBACK_TAIL = ('Чтобы ответить точнее, уточните, пожалуйста, задачу и параметры объекта — '
+                 'или оставьте заявку, и специалист EnergyTool разберёт вашу ситуацию.')
+TABLE_LINE = re.compile(r'^\s*[-|=+: ]{3,}\s*$')
+
+
+def extractive_answer(index, dialogue: str) -> str:
+    """Grounded answer without the model: opening sentences of the best lexical match.
+
+    Used only when generation is unavailable, so the platform gets base facts instead of a
+    'service unavailable' line. Guard sections are rules for the model and are never quoted.
+    """
+    lexical = getattr(index, 'lexical', index)
+    for hit in lexical.search(dialogue_query(dialogue), 5):
+        if hit.chunk.heading.rsplit(' / ', 1)[-1].strip() in GUARD_HEADINGS:
+            continue
+        # Drop table rows (rules, pipes, column-aligned cells): stitched cells read as noise.
+        lines = [MARKDOWN.sub('', line).strip(' |') for line in hit.chunk.text.splitlines()
+                 if line.strip() and not TABLE_LINE.match(line) and '|' not in line
+                 and not re.search(r'\S {2,}\S', line.strip())]
+        text = re.sub(r'\s+', ' ', ' '.join(lines)).strip()
+        # Sentences that start mid-phrase are continuations of wrapped table cells.
+        sentences = [s for s in re.split(r'(?<=[.!?])\s+', text) if s[:1].isupper() or s[:1].isdigit()]
+        lead = ' '.join(sentences[:2]).strip()
+        if len(lead) > 400:
+            lead = lead[:400].rsplit(' ', 1)[0] + '…'
+        if lead:
+            return f'{lead} {FALLBACK_TAIL}'
+    return FALLBACK_TAIL
+
+
 class Consultant:
     def __init__(self, index: SearchIndex | HybridIndex, client: ModelClient):
         self.index, self.client = index, client
@@ -113,6 +143,6 @@ class Consultant:
                 else self.index.search(query, top_k))
         material, sources = self.context(hits)
         user = (f'Материалы базы знаний:\n{material or "(по запросу ничего не найдено)"}\n\n'
-                f'Диалог с клиентом (ответь на последнюю реплику пользователя):\n{dialogue.strip()}')
+                f'Диалог с клиентом (ответь на последнюю реплику пользователя):\n{dialogue.strip()}\n\n{NO_THINK}')
         answer = self.client.generate([{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}], deadline)
         return Consultation(tidy(answer) or answer, sources, round((time.monotonic() - started) * 1000))

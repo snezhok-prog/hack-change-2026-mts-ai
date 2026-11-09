@@ -42,7 +42,8 @@ class SubmissionTests(unittest.TestCase):
             user = payload['messages'][-1]['content']
             self.assertIn('Материалы базы знаний:', user)
             self.assertIn('Датчики Альфа считают воду' if 'Альфа?' in user else 'Батареи Бета питают фонари', user)
-            seen.append(user.rsplit('\n', 1)[-1])
+            self.assertTrue(user.endswith('/no_think'))
+            seen.append(user.split('пользователя):\n', 1)[1].split('\n\n', 1)[0])
             return httpx.Response(200, json={'choices': [{'message': {'content': 'Ответ, с "кавычками"\nНовая строка [1]'}}]})
         errors = run(self.root, self.root / 'out.csv', self.settings, self.client(handler))
         self.assertEqual(errors, 0)
@@ -100,7 +101,8 @@ class SubmissionTests(unittest.TestCase):
         with self.assertLogs('submission', level='ERROR'):
             failures = run(self.root, self.root / 'out.csv', self.settings, self.client(lambda r: httpx.Response(401)))
         self.assertEqual(failures, 1)
-        self.assertIn('не удалось', (self.root / 'out.csv').read_text(encoding='utf-8'))
+        # Provider failure keeps the base-grounded fallback, never an empty row.
+        self.assertIn('Датчики Альфа считают воду.', (self.root / 'out.csv').read_text(encoding='utf-8'))
 
     def test_invalid_provider_schema_and_empty_answers_fail(self):
         for response in [{}, {'choices': [{'message': {'content': ''}}]}, {'choices': [{'message': {'content': 'x' * 10001}}]}]:
@@ -143,11 +145,14 @@ class SubmissionTests(unittest.TestCase):
         with (self.root / 'out.csv').open(encoding='utf-8', newline='') as stream:
             return {r['id']: r['answer'] for r in csv.DictReader(stream)}
 
-    def test_missing_model_config_still_writes_every_id(self):
-        self.questions([('1', 'Датчики?'), ('2', 'Батареи?')])
+    def test_missing_model_config_still_writes_every_id_with_base_facts(self):
+        self.questions([('1', 'Датчики Альфа?'), ('2', 'Батареи Бета?')])
         failures = run(self.root, self.root / 'out.csv', None, None)
         self.assertEqual(failures, 2)
-        self.assertEqual(set(self.read_output().values()), {UNAVAILABLE})
+        output = self.read_output()
+        self.assertIn('Датчики Альфа считают воду.', output['1'])
+        self.assertIn('Батареи Бета питают фонари.', output['2'])
+        self.assertNotIn(UNAVAILABLE, output.values())
 
     def test_missing_knowledge_base_and_file_aliases(self):
         (self.root / 'knowledge-base.zip').rename(self.root / 'kb.zip')
@@ -169,7 +174,9 @@ class SubmissionTests(unittest.TestCase):
         with self.assertLogs('submission', level='ERROR'):
             failures = run(self.root, self.root / 'out.csv', self.settings, self.client(handler))
         self.assertEqual(failures, 1)
-        self.assertEqual(self.read_output(), {'1': 'Ответ', '2': UNAVAILABLE, '3': EMPTY_QUESTION})
+        output = self.read_output()
+        self.assertEqual((output['1'], output['3']), ('Ответ', EMPTY_QUESTION))
+        self.assertIn('Батареи Бета питают фонари.', output['2'])  # base-grounded fallback, not 'unavailable'
 
 
 if __name__ == '__main__':

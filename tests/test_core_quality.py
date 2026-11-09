@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 from zipfile import ZipFile
 import httpx
-from consultant import Consultant, tidy
+from consultant import Consultant, extractive_answer, tidy
 from model_client import ModelClient, ProviderError, Settings, reasoning_off_params, strip_reasoning
 from retrieval import SearchIndex, split_document
 import solution
@@ -50,6 +50,42 @@ class ReasoningTests(unittest.TestCase):
         self.assertEqual(['chat_template_kwargs' in b for b in bodies], [True, False, False])
 
 
+class TruncatedReasoningTests(unittest.TestCase):
+    def client(self, handler, max_tokens=300):
+        client = ModelClient(Settings('https://proxy.invalid/v1', 'k', 'm', max_tokens=max_tokens), transport=httpx.MockTransport(handler))
+        self.addCleanup(client.close)
+        return client
+
+    def test_cut_off_reasoning_is_retried_once_with_a_larger_budget(self):
+        budgets = []
+        def handler(request):
+            budgets.append(json.loads(request.content)['max_tokens'])
+            return reply('<think>долго рассуждаю' if len(budgets) == 1 else '<think>ok</think>Да, можно.')
+        self.assertEqual(self.client(handler).generate([], time.monotonic() + 20), 'Да, можно.')
+        self.assertEqual(budgets, [1024, 2048])  # floor 1024 even when the platform sets 300
+
+    def test_reasoning_cut_off_twice_fails_without_endless_retries(self):
+        calls = []
+        def handler(request):
+            calls.append(1)
+            return reply('<think>бесконечно')
+        with self.assertRaisesRegex(ProviderError, 'empty'):
+            self.client(handler).generate([], time.monotonic() + 20)
+        self.assertEqual(len(calls), 2)
+
+
+class ExtractiveFallbackTests(unittest.TestCase):
+    def test_fallback_quotes_base_facts_and_never_guard_rules(self):
+        text = ('# Станции\nСолнечные станции ставим на кровлю. Срок службы около 25 лет. Третье предложение.\n'
+                '## Чего утверждать нельзя\nНазывать итоговую цену станции.')
+        index = SearchIndex(split_document('solar.md', text))
+        answer = extractive_answer(index, 'Солнечные станции на кровлю?')
+        self.assertIn('Солнечные станции ставим на кровлю. Срок службы около 25 лет.', answer)
+        self.assertNotIn('Третье предложение', answer)
+        self.assertNotIn('Называть итоговую цену', extractive_answer(index, 'Называть итоговую цену станции?'))
+        self.assertTrue(extractive_answer(index, 'рецепт борща').startswith('Чтобы ответить точнее'))
+
+
 class ContextTests(unittest.TestCase):
     def test_guard_sections_of_retrieved_products_are_added(self):
         text = ('# Станции\nСолнечные станции на кровле.\n## Факты, которые можно утверждать\nСрок службы 25 лет.\n'
@@ -86,7 +122,7 @@ class CheckpointTests(unittest.TestCase):
                 # Read only after the atomic replace finished, in the writer's own thread (no handle race on Windows).
                 real_write(path, rows)
                 answers = dict(rows)
-                if answers.get('1') == 'Ответ Альфа' and answers.get('2') == solution.UNAVAILABLE:
+                if answers.get('1') == 'Ответ Альфа' and answers.get('2') not in (None, 'Ответ Бета'):
                     seen_in_file.append(path.read_text(encoding='utf-8'))
                     checkpointed.set()
             async def handler(request):
@@ -105,7 +141,7 @@ class CheckpointTests(unittest.TestCase):
             finally:
                 client.close()
             self.assertTrue(seen_in_file, 'first answer was not checkpointed while the second was pending')
-            self.assertIn(solution.UNAVAILABLE, seen_in_file[0])  # the pending row still has a valid fallback
+            self.assertIn('Батареи Бета', seen_in_file[0])  # the pending row holds its base-grounded fallback
             with (root / 'out.csv').open(encoding='utf-8', newline='') as stream:
                 self.assertEqual({r['id']: r['answer'] for r in csv.DictReader(stream)}, {'1': 'Ответ Альфа', '2': 'Ответ Бета'})
 

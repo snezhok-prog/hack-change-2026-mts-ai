@@ -53,7 +53,10 @@ class Settings:
 
 
 DEFAULT_MODEL = 'qwen/qwen3.8-27b'
-DEFAULT_EMB_MODEL = 'baai/bge-m3'  # organizer sample default; also served by OpenRouter
+DEFAULT_EMB_MODEL = 'baai/bge-m3'
+MIN_ANSWER_TOKENS = 1024
+MAX_GROWN_TOKENS = 4096
+NO_THINK = '/no_think'  # Qwen3 in-prompt switch; works even if the proxy drops the request field  # organizer sample default; also served by OpenRouter
 THINK_BLOCK = re.compile(r'<think>.*?</think>', re.S | re.I)
 
 
@@ -190,6 +193,10 @@ class ModelClient:
         raise ProviderError('Provider did not return an answer')
 
     async def _generate(self, messages: list[dict[str, str]], deadline: float) -> str:
+        # Qwen3 may ignore the reasoning switch on some proxies and spend the whole budget
+        # inside <think>; keep a floor for the answer and grow it once if reasoning was cut off.
+        max_tokens = max(self.settings.max_tokens, MIN_ANSWER_TOKENS)
+        grown = False
         for attempt in range(3):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -199,7 +206,7 @@ class ModelClient:
                 response = await self.client.post(self.settings.base_url + '/chat/completions',
                     headers={'Authorization': 'Bearer ' + self.settings.api_key},
                     json={'model': self.settings.model, 'messages': messages,
-                          'temperature': self.settings.temperature, 'max_tokens': self.settings.max_tokens, **extra},
+                          'temperature': self.settings.temperature, 'max_tokens': max_tokens, **extra},
                     timeout=httpx.Timeout(min(self.settings.timeout, remaining), connect=min(10, remaining)))
             except httpx.TransportError:
                 if attempt == 2:
@@ -212,11 +219,15 @@ class ModelClient:
                     if not response.is_success:
                         raise ProviderError(f'Provider HTTP {response.status_code}')
                     try:
-                        answer = response.json()['choices'][0]['message']['content']
+                        raw = response.json()['choices'][0]['message']['content']
                     except (ValueError, KeyError, IndexError, TypeError):
                         raise ProviderError('Invalid provider response schema') from None
-                    answer = strip_reasoning(answer) if isinstance(answer, str) else answer
+                    answer = strip_reasoning(raw) if isinstance(raw, str) else raw
                     if not isinstance(answer, str) or not answer.strip():
+                        if isinstance(raw, str) and '<think' in raw.lower() and not grown:
+                            grown = True  # reasoning hit the token limit: one retry with a larger budget
+                            max_tokens = min(MAX_GROWN_TOKENS, max_tokens * 2)
+                            continue
                         raise ProviderError('Provider returned an empty answer')
                     if len(answer.strip()) > 10000:
                         raise ProviderError('Provider answer exceeds 10000 characters')

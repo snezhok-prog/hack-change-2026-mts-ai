@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 from zipfile import BadZipFile
-from consultant import Consultant
+from consultant import Consultant, extractive_answer
 from model_client import ModelClient, ProviderError, Settings, env_number, env_value
 from retrieval import HybridIndex, SearchIndex, load_archive
 
@@ -92,6 +92,14 @@ def write_submission(path: Path, rows: list[tuple[str, str]]) -> None:
             temporary.unlink()
 
 
+def grounded_fallback(lexical: SearchIndex, question: str) -> str:
+    try:
+        return clean(extractive_answer(lexical, question))
+    except Exception as error:  # fallback must never fail the run
+        LOG.error('Extractive fallback failed (%s)', type(error).__name__)
+        return UNAVAILABLE
+
+
 def clean(answer: str) -> str:
     answer = (answer or '').strip()
     return answer[:MAX_ANSWER].strip() if answer else UNAVAILABLE
@@ -104,16 +112,20 @@ def run(data_dir: Path, output: Path, settings: Settings | None, client: ModelCl
     answers = [EMPTY_QUESTION if not q.strip() else UNAVAILABLE for _, q in questions]
     # Complete file first: a timeout kill or later crash still leaves every ID answered.
     write_submission(output, [(qid, answers[i]) for i, (qid, _) in enumerate(questions)])
-    core = None
-    if client is not None:
-        try:
-            lexical = SearchIndex(load_archive(str(find_input(data_dir, KB_FILES))))
+    core = lexical = None
+    try:
+        lexical = SearchIndex(load_archive(str(find_input(data_dir, KB_FILES))))
+    except (OSError, ValueError, BadZipFile) as error:
+        LOG.error('Knowledge base unavailable (%s); writing fallback answers', type(error).__name__)
+    if lexical is not None:
+        # Base-grounded fallbacks replace 'service unavailable' before any model call.
+        answers = [EMPTY_QUESTION if not q.strip() else grounded_fallback(lexical, q) for _, q in questions]
+        write_submission(output, [(qid, answers[i]) for i, (qid, _) in enumerate(questions)])
+        if client is not None:
             # Dense index build is bounded so a slow embedder cannot eat the answering budget.
             index = HybridIndex.build(lexical, client, min(deadline, time.monotonic() + EMBED_BUILD_SECONDS))
             LOG.info('retrieval=%s rerank=%s chunks=%d', 'hybrid' if index.dense else 'bm25', index.rerank_enabled, len(index.chunks))
             core = Consultant(index, client)
-        except (OSError, ValueError, BadZipFile) as error:
-            LOG.error('Knowledge base unavailable (%s); writing fallback answers', type(error).__name__)
     pending = [i for i, (_, q) in enumerate(questions) if q.strip()]
     failures = len(pending)
     def save():
@@ -128,15 +140,15 @@ def run(data_dir: Path, output: Path, settings: Settings | None, client: ModelCl
         with ThreadPoolExecutor(max_workers=settings.workers if settings else 1) as pool:
             futures = {pool.submit(core.answer, questions[i][1], deadline): i for i in pending}
             for future in as_completed(futures):
-                index = futures[future]
+                row = futures[future]
                 try:
                     result = future.result()
-                    answers[index] = clean(result.answer)
-                    LOG.info('row=%d elapsed_ms=%d sources=%d', index + 1, result.elapsed_ms, len(result.sources))
+                    answers[row] = clean(result.answer)
+                    LOG.info('row=%d elapsed_ms=%d sources=%d', row + 1, result.elapsed_ms, len(result.sources))
                 except Exception as error:  # one question must never cost the whole submission
-                    failures += 1
+                    failures += 1  # the row keeps its base-grounded fallback
                     # ProviderError text is designed to be safe; other exceptions may carry payloads.
-                    LOG.error('row=%d %s', index + 1, error if isinstance(error, ProviderError) else type(error).__name__)
+                    LOG.error('row=%d %s', row + 1, error if isinstance(error, ProviderError) else type(error).__name__)
                 done += 1
                 if done - saved_at >= every or time.monotonic() - last_save >= CHECKPOINT_SECONDS:
                     save()
