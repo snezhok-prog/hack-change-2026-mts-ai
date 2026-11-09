@@ -85,6 +85,8 @@ def static_checks(answer: str) -> dict:
     return {
         'words': len(re.findall(r'\w+', visible)),
         'over_150_words': len(re.findall(r'\w+', visible)) > 150,
+        'over_80_words': len(re.findall(r'\w+', visible)) > 80,  # references: median 38, max 51 words
+        'offers_lead': bool(re.search(r'заявк|менеджер|перезвон', visible, re.I)),  # 0 of 18 references do
         'think_leak': '<think' in answer.lower(),
         'citations': bool(CITATION.search(visible)),
         'questions': visible.count('?'),
@@ -171,7 +173,7 @@ def summarize(rows: list[dict]) -> dict:
     checks = [r['checks'] for r in rows]
     result = metrics([r['score'] for r in rows if 'score' in r])
     result['errors'] = sum('error' in r for r in rows)
-    for key in ('over_150_words', 'think_leak', 'citations', 'markdown'):
+    for key in ('over_150_words', 'over_80_words', 'offers_lead', 'think_leak', 'citations', 'markdown'):
         result[key] = sum(c[key] for c in checks)
     result['avg_words'] = round(sum(c['words'] for c in checks) / len(checks), 1) if checks else 0
     # A run with errors is not comparable: averaging only the judged rows can look better than a full run.
