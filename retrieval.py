@@ -206,8 +206,9 @@ class HybridIndex:
     @classmethod
     def build(cls, lexical: SearchIndex, client, deadline: float) -> 'HybridIndex':
         settings = getattr(client, 'settings', None)
+        rerank = bool(getattr(settings, 'reranker_model', ''))
         if settings is None or not getattr(settings, 'emb_model', ''):
-            return cls(lexical)
+            return cls(lexical, client if rerank else None, rerank=rerank)
         texts = [embed_text(c) for c in lexical.chunks]
         try:
             vectors: list[list[float]] = []
@@ -215,8 +216,8 @@ class HybridIndex:
                 vectors.extend(client.embed(texts[start:start + EMBED_BATCH], deadline))
         except Exception as error:  # any provider/schema problem: keep the lexical index
             LOG.warning('Dense retrieval disabled (%s)', type(error).__name__)
-            return cls(lexical)
-        return cls(lexical, client, [normalize(v) for v in vectors], bool(getattr(settings, 'reranker_model', '')))
+            return cls(lexical, client if rerank else None, rerank=rerank)
+        return cls(lexical, client, [normalize(v) for v in vectors], rerank)
 
     @property
     def dense(self) -> bool:
@@ -224,15 +225,17 @@ class HybridIndex:
 
     def search(self, query: str, limit: int = 8, deadline: float | None = None) -> list[Hit]:
         lexical = self.lexical.search(query, CANDIDATES)
-        if not self.dense or not query.strip():
+        if not query.strip():
             return lexical[:limit]
         deadline = deadline if deadline is not None else time.monotonic() + 30
+        if not self.dense:
+            return self._rerank(query, lexical, limit, deadline)
         # Optional stages get short deadlines so a slow embedder/reranker cannot starve generation.
         try:
             q = normalize(self.client.embed([query], min(deadline, time.monotonic() + QUERY_EMBED_SECONDS))[0])
         except Exception as error:
             LOG.warning('Query embedding failed (%s); using BM25', type(error).__name__)
-            return lexical[:limit]
+            return self._rerank(query, lexical, limit, deadline)
         similarity = [sum(a * b for a, b in zip(q, v)) for v in self.vectors]
         dense = sorted(range(len(self.chunks)), key=lambda i: -similarity[i])[:CANDIDATES]
         position = {id(chunk): i for i, chunk in enumerate(self.chunks)}
@@ -243,13 +246,20 @@ class HybridIndex:
         for rank, i in enumerate(dense):
             fused[i] = fused.get(i, 0.0) + 1 / (RRF_K + rank + 1)
         order = sorted(fused, key=lambda i: (-fused[i], i))
-        if self.rerank_enabled:
-            pool = order[:RERANK_POOL]
+        candidates = [Hit(self.chunks[i], round(fused[i], 6)) for i in order]
+        return self._rerank(query, candidates, limit, deadline)
+
+    def _rerank(self, query: str, candidates: list[Hit], limit: int, deadline: float) -> list[Hit]:
+        """Reranking is independent of whether candidate retrieval used embeddings."""
+        if self.rerank_enabled and candidates:
+            pool = candidates[:RERANK_POOL]
             try:
-                ranked = self.client.rerank(query, [embed_text(self.chunks[i])[:2000] for i in pool],
+                ranked = self.client.rerank(query, [embed_text(hit.chunk)[:2000] for hit in pool],
                                             min(deadline, time.monotonic() + RERANK_SECONDS))
-                order = [pool[r] for r in ranked] + [i for i in pool if i not in {pool[r] for r in ranked}] + order[RERANK_POOL:]
+                selected = set(ranked)
+                candidates = ([pool[i] for i in ranked] + [hit for i, hit in enumerate(pool) if i not in selected]
+                              + candidates[RERANK_POOL:])
             except Exception as error:
                 LOG.warning('Reranker disabled (%s)', type(error).__name__)
                 self.rerank_enabled = False
-        return [Hit(self.chunks[i], round(fused[i], 6)) for i in order[:limit]]
+        return candidates[:limit]

@@ -75,6 +75,52 @@ class HybridIndexTests(unittest.TestCase):
             hits = index.search('солнечные панели', 2, time.monotonic() + 5)
         self.assertIn('Солнце', hits[0].chunk.heading)
 
+    def test_configured_reranker_survives_missing_or_failed_embeddings(self):
+        query = 'Солнечные панели показаний потерь'
+        expected = lexical().search(query, 3)
+        self.assertEqual(len(expected), 3)
+        for options in ({'emb': ''}, {'fail_build': True}, {'fail_query': True}):
+            with self.subTest(options=options), patch('retrieval.LOG.warning'):
+                client = FakeClient(reranker='rr', rerank=lambda docs: list(reversed(range(len(docs)))), **options)
+                index = HybridIndex.build(lexical(), client, time.monotonic() + 5)
+                hits = index.search(query, 3, time.monotonic() + 5)
+                self.assertEqual(hits, expected[::-1])
+                self.assertEqual(client.rerank_calls, 1)
+                self.assertTrue(index.rerank_enabled)
+                self.assertEqual(index.dense, options.get('fail_query', False))
+                if options.get('emb') == '':
+                    self.assertEqual(client.embed_calls, 0)
+
+    def test_unconfigured_reranker_is_never_called_on_lexical_fallback(self):
+        for options in ({'emb': ''}, {'fail_build': True}, {'fail_query': True}):
+            with self.subTest(options=options), patch('retrieval.LOG.warning'):
+                client = FakeClient(**options)
+                index = HybridIndex.build(lexical(), client, time.monotonic() + 5)
+                self.assertEqual(index.search('панели потерь', 3, time.monotonic() + 5),
+                                 lexical().search('панели потерь', 3))
+                self.assertEqual(client.rerank_calls, 0)
+
+    def test_reranker_failure_preserves_lexical_hits_and_disables_only_reranker(self):
+        client = FakeClient(emb='', reranker='rr')
+        index = HybridIndex.build(lexical(), client, time.monotonic() + 5)
+        expected = lexical().search('панели потерь', 3)
+        with self.assertLogs('retrieval', 'WARNING'):
+            self.assertEqual(index.search('панели потерь', 3, time.monotonic() + 5), expected)
+        self.assertEqual(index.search('панели потерь', 3, time.monotonic() + 5), expected)
+        self.assertEqual(client.rerank_calls, 1)
+        self.assertFalse(index.rerank_enabled)
+
+    def test_reranker_without_embeddings_keeps_stage_cap_and_skips_empty_candidates(self):
+        client = FakeClient(emb='', reranker='rr', rerank=lambda docs: list(range(len(docs))))
+        index = HybridIndex.build(lexical(), client, time.monotonic() + 1000)
+        with patch.object(client, 'rerank', wraps=client.rerank) as rerank:
+            now = time.monotonic()
+            index.search('панели', 3, now + 1000)
+            self.assertLessEqual(rerank.call_args.args[2], now + 16)
+            index.search('несуществующийтермин', 3, now + 1000)
+            index.search('', 3, now + 1000)
+            self.assertEqual(rerank.call_count, 1)
+
     def test_query_stages_get_short_deadlines(self):
         client = FakeClient(reranker='rr', rerank=lambda documents: list(range(len(documents))))
         seen = []
