@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!requirements.txt
+!requirements-web.txt
+!consultant.py
+!model_client.py
+!retrieval.py
+!storage.py
+!web.py
+!static/
+!static/**
