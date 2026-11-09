@@ -53,7 +53,7 @@ python scripts/build_submission.py
 
 ## Docker для локального веб-демо
 
-Dockerfile и Compose проверены в GitHub Actions на Linux: сборка, запуск HTTP и сохранение SQLite после перезапуска. Локальный Docker установлен на Windows; движок остановлен из-за малого свободного места на системном диске. Проверка контейнера на этой Windows пока не завершена.
+Dockerfile и Compose проверены в GitHub Actions на Linux и локально на Windows: сборка, запуск HTTP и сохранение SQLite после перезапуска. На Windows ошибка WSL `ERROR_NO_SYSTEM_RESOURCES` устранена ограничением памяти VM; детали и проверенная версия — в `docs/STATUS.md`. Живой API модели локально ещё не проверен.
 
 1. Создайте каталог `data` и положите предоставленный организаторами `knowledge-base.zip` внутрь.
 2. Скопируйте `.env.example` в `.env`, заполните доступ к модели и собственный ключ архива `ADMIN_TOKEN`.
@@ -66,6 +66,8 @@ Dockerfile и Compose проверены в GitHub Actions на Linux: сбор�
 Руководитель проекта — Рома (Kunnjut), скрам-мастер — Codex; роли, зоны ответственности и порядок работы — в [AGENTS.md](AGENTS.md), он главнее остальных документов.
 
 Прочитайте [архитектуру](docs/ARCHITECTURE.md), [план ИИ-ядра](docs/AI-CORE.md) и [статус/ограничения](docs/STATUS.md).
+
+Общий канал вопросов Роме/Claude, Глебу/Codex и Codex интеграции — [issue #5](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/5). [Готовые инструкции для агентов](docs/notes/2026-11-09-team-channel.md). Автоматического пробуждения сессий нет; получение подтверждается ответом в обсуждении.
 
 Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`.
 
