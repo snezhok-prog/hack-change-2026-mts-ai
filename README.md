@@ -55,7 +55,7 @@ python scripts/build_submission.py
 
 ## Docker для локального веб-демо
 
-Dockerfile и Compose проверены в GitHub Actions на Linux и локально на Windows: сборка, запуск HTTP и сохранение SQLite после перезапуска. На Windows ошибка WSL `ERROR_NO_SYSTEM_RESOURCES` устранена ограничением памяти VM; детали и проверенная версия — в `docs/STATUS.md`. Живой API модели локально ещё не проверен.
+Dockerfile и Compose проверены в GitHub Actions на Linux и локально на Windows: сборка, запуск HTTP и сохранение SQLite после перезапуска. На Windows ошибка WSL `ERROR_NO_SYSTEM_RESOURCES` устранена ограничением памяти VM; детали и проверенная версия — в `docs/STATUS.md`. Живой бесплатный API локально проверен; границы проверки и текущая версия — в `docs/STATUS.md`.
 
 1. Создайте каталог `data` и положите предоставленный организаторами `knowledge-base.zip` внутрь.
 2. Скопируйте `.env.example` в `.env`, заполните доступ к модели и собственный ключ архива `ADMIN_TOKEN`.
