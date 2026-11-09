@@ -1,0 +1,3 @@
+-r requirements-web.txt
+# Current Starlette TestClient uses httpx2; production submission retains httpx.
+httpx2==2.16.0
