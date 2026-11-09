@@ -75,6 +75,19 @@ class HybridIndexTests(unittest.TestCase):
             hits = index.search('солнечные панели', 2, time.monotonic() + 5)
         self.assertIn('Солнце', hits[0].chunk.heading)
 
+    def test_query_stages_get_short_deadlines(self):
+        client = FakeClient(reranker='rr', rerank=lambda documents: list(range(len(documents))))
+        seen = []
+        original_embed, original_rerank = client.embed, client.rerank
+        client.embed = lambda texts, deadline: (seen.append(('embed', len(texts), deadline)), original_embed(texts, deadline))[1]
+        client.rerank = lambda q, docs, deadline: (seen.append(('rerank', 0, deadline)), original_rerank(q, docs, deadline))[1]
+        index = HybridIndex.build(lexical(), client, time.monotonic() + 1000)
+        now = time.monotonic()
+        index.search('панели', 3, now + 1000)
+        stages = {name: deadline for name, size, deadline in seen if size != len(index.chunks)}
+        self.assertLessEqual(stages['embed'], now + 11)   # not the whole question budget
+        self.assertLessEqual(stages['rerank'], now + 16)
+
     def test_reranker_reorders_and_failing_reranker_is_switched_off(self):
         last_first = lambda documents: list(range(len(documents)))[::-1]
         index = HybridIndex.build(lexical(), FakeClient(reranker='rr', rerank=last_first), time.monotonic() + 5)

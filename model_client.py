@@ -70,6 +70,12 @@ def strip_reasoning(text: str) -> str:
     return text.strip()
 
 
+def trim_to_sentence(text: str) -> str:
+    """Cut a length-truncated answer back to its last complete sentence (if there is one)."""
+    ends = [m.end() for m in re.finditer(r'[.!?…](?=\s|$)', text)]
+    return text[:ends[-1]].strip() if ends else text.strip()
+
+
 def reasoning_off_params(base_url: str) -> dict:
     if 'openrouter.ai' in base_url:
         return {'reasoning': {'enabled': False}}
@@ -219,8 +225,9 @@ class ModelClient:
                     if not response.is_success:
                         raise ProviderError(f'Provider HTTP {response.status_code}')
                     try:
-                        raw = response.json()['choices'][0]['message']['content']
-                    except (ValueError, KeyError, IndexError, TypeError):
+                        choice = response.json()['choices'][0]
+                        raw, finish = choice['message']['content'], choice.get('finish_reason')
+                    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
                         raise ProviderError('Invalid provider response schema') from None
                     answer = strip_reasoning(raw) if isinstance(raw, str) else raw
                     if not isinstance(answer, str) or not answer.strip():
@@ -229,6 +236,12 @@ class ModelClient:
                             max_tokens = min(MAX_GROWN_TOKENS, max_tokens * 2)
                             continue
                         raise ProviderError('Provider returned an empty answer')
+                    if finish == 'length':
+                        if not grown:
+                            grown = True  # answer cut by the token limit: one retry with a larger budget
+                            max_tokens = min(MAX_GROWN_TOKENS, max_tokens * 2)
+                            continue
+                        answer = trim_to_sentence(answer)  # never hand a half sentence to the client
                     if len(answer.strip()) > 10000:
                         raise ProviderError('Provider answer exceeds 10000 characters')
                     return answer.strip()

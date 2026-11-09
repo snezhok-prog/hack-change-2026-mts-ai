@@ -74,6 +74,29 @@ class TruncatedReasoningTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class LengthCutTests(unittest.TestCase):
+    def client(self, handler):
+        client = ModelClient(Settings('https://proxy.invalid/v1', 'k', 'm'), transport=httpx.MockTransport(handler))
+        self.addCleanup(client.close)
+        return client
+
+    @staticmethod
+    def cut(text):
+        return httpx.Response(200, json={'choices': [{'message': {'content': text}, 'finish_reason': 'length'}]})
+
+    def test_cut_answer_is_retried_then_trimmed_to_a_full_sentence(self):
+        calls = []
+        def handler(request):
+            calls.append(json.loads(request.content)['max_tokens'])
+            return self.cut('Да, можно. Платформа поддерживает приборы. Для расчёта нам понад')
+        self.assertEqual(self.client(handler).generate([], time.monotonic() + 20), 'Да, можно. Платформа поддерживает приборы.')
+        self.assertEqual(calls, [1200, 2400])  # default budget, doubled once
+
+    def test_retry_that_completes_wins(self):
+        answers = iter([self.cut('Да, можно. Обрыв на полу'), reply('Да, можно. Полный ответ.')])
+        self.assertEqual(self.client(lambda request: next(answers)).generate([], time.monotonic() + 20), 'Да, можно. Полный ответ.')
+
+
 class ExtractiveFallbackTests(unittest.TestCase):
     def test_fallback_quotes_base_facts_and_never_guard_rules(self):
         text = ('# Станции\nСолнечные станции ставим на кровлю. Срок службы около 25 лет. Третье предложение.\n'
