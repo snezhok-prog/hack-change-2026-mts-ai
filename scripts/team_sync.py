@@ -46,6 +46,9 @@ def send(sender: str, body: str, cwd=None) -> str:
 
 
 def main() -> int:
+    # Keep Russian messages readable when redirected by Windows terminals/tools.
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     reader = sub.add_parser('read')
