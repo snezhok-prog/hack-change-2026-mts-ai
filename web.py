@@ -58,23 +58,36 @@ def create_app(core=None, db_path: Path | None = None, admin_token: str | None =
     slots = threading.BoundedSemaphore(3)
     admin = admin_token if admin_token is not None else os.environ.get('ADMIN_TOKEN', '')
     model_client = None
+    status = {'knowledge_base_ready': core is not None, 'model_configured': core is not None,
+              'provider_verified': False, 'model': None}
 
     @asynccontextmanager
     async def lifespan(app):
         nonlocal core, model_client
         if core is None:
+            settings = index = None
             try:
                 settings = Settings.from_env()
+            except ValueError:
+                pass
+            else:
+                status['model_configured'] = True
+                status['model'] = settings.model
+            try:
                 index = SearchIndex(load_archive(str(Path(os.environ.get('DATA_DIR', 'data')) / 'knowledge-base.zip')))
             except (ValueError, OSError, BadZipFile):
-                app.state.ready = False
+                pass
             else:
+                status['knowledge_base_ready'] = True
+            if settings is not None and index is not None:
                 model_client = ModelClient(settings)
                 core = Consultant(index, model_client)
         app.state.ready = core is not None
-        yield
-        if model_client:
-            model_client.close()
+        try:
+            yield
+        finally:
+            if model_client:
+                model_client.close()
 
     app = FastAPI(title='EnergyTool Consultant', lifespan=lifespan)
 
@@ -90,7 +103,7 @@ def create_app(core=None, db_path: Path | None = None, admin_token: str | None =
 
     @app.get('/api/health')
     def health():
-        return {'ready': core is not None, 'mode': 'local-demo', 'provider_verified': False}
+        return {'ready': core is not None, 'mode': 'local-demo', **status}
 
     @app.post('/api/sessions', status_code=201)
     def new_session():
@@ -114,14 +127,22 @@ def create_app(core=None, db_path: Path | None = None, admin_token: str | None =
                     raise HTTPException(422, 'Диалог достиг лимита. Начните новый диалог; история сохранится.')
                 store.message(identifier, 'user', body.text)
                 if core is None:
-                    store.message(identifier, 'error', 'Сервис модели не настроен')
-                    raise HTTPException(503, 'Для консультации нужно подключить API модели и базу знаний.')
+                    missing = []
+                    if not status['model_configured']:
+                        missing.append('API модели')
+                    if not status['knowledge_base_ready']:
+                        missing.append('базу знаний')
+                    detail = 'Для консультации нужно подключить ' + ' и '.join(missing) + '.'
+                    store.message(identifier, 'error', detail)
+                    raise HTTPException(503, detail)
                 try:
                     answer = core.answer(dialogue, time.monotonic() + 150)
                 except ProviderError:
                     store.message(identifier, 'error', 'Сервис модели временно недоступен')
                     raise HTTPException(503, 'Сервис модели временно недоступен. Попробуйте позже.') from None
                 store.message(identifier, 'assistant', answer.answer, {'sources': answer.sources, 'elapsed_ms': answer.elapsed_ms})
+                if model_client is not None:
+                    status['provider_verified'] = True
                 return asdict(answer)
         finally:
             slots.release()
