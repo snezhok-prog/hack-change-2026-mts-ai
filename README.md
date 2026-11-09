@@ -73,6 +73,6 @@ Dockerfile и Compose проверены в GitHub Actions на Linux и лок�
 
 Для SSH: `git@github.com:snezhok-prog/hack-change-2026-mts-ai.git`.
 
-Задачи первой итерации: Рома — ИИ-ядро и руководство ([#1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1) переназначен), [Олег / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
+Задачи первой итерации: Рома — ИИ-ядро и руководство ([#1](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/1) переназначен), [Глеб / UI #2](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/2) (передано от Олега), [Глеб / демо #3](https://github.com/snezhok-prog/hack-change-2026-mts-ai/issues/3).
 
 Код попадает в `main` только через PR, слияние — за Ромой. GitHub Actions автоматически проверяет тесты, упаковку ZIP и контейнер при push в main/feature-ветки и при PR в main. API модели и база организаторов для CI не нужны; тесты используют синтетические данные.

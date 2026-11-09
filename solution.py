@@ -78,7 +78,14 @@ def write_submission(path: Path, rows: list[tuple[str, str]]) -> None:
             writer = csv.writer(stream)
             writer.writerow(['id', 'answer'])
             writer.writerows(rows)
-        temporary.replace(path)
+        for attempt in range(5):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:  # Windows: a reader briefly holds the old file
+                if attempt == 4:
+                    raise
+                time.sleep(.05)
     finally:
         if temporary and temporary.exists():
             temporary.unlink()
