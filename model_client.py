@@ -1,7 +1,10 @@
 """Organizer-compatible chat API with explicit configuration and bounded retries."""
 from dataclasses import dataclass, field
+import asyncio
+from concurrent.futures import TimeoutError as FutureTimeout
 import math
 import os
+import threading
 import time
 from urllib.parse import urlsplit
 import httpx
@@ -70,19 +73,53 @@ def env_number(name: str, default, lower, upper, kind):
 class ModelClient:
     def __init__(self, settings: Settings, transport=None):
         self.settings = settings
-        self.client = httpx.Client(transport=transport, timeout=settings.timeout,
+        self.client = httpx.AsyncClient(transport=transport, timeout=settings.timeout,
                                   limits=httpx.Limits(max_connections=settings.workers, max_keepalive_connections=settings.workers))
+        # One event loop owns the shared pool; synchronous callers can cancel I/O.
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(target=self.loop.run_forever, name='model-http', daemon=True)
+        self.thread.start()
+        self.closed = False
 
     def close(self) -> None:
-        self.client.close()
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            asyncio.run_coroutine_threadsafe(self._close(), self.loop).result(timeout=5)
+        finally:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+            self.thread.join(timeout=5)
+            if not self.thread.is_alive():
+                self.loop.close()
+
+    async def _close(self) -> None:
+        pending = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        await self.client.aclose()
 
     def generate(self, messages: list[dict[str, str]], deadline: float) -> str:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ProviderError('Run time budget exhausted')
+        if self.closed:
+            raise ProviderError('Model client is closed')
+        future = asyncio.run_coroutine_threadsafe(self._generate(messages, deadline), self.loop)
+        try:
+            return future.result(timeout=remaining)
+        except FutureTimeout:
+            future.cancel()
+            raise ProviderError('Run time budget exhausted') from None
+
+    async def _generate(self, messages: list[dict[str, str]], deadline: float) -> str:
         for attempt in range(3):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ProviderError('Run time budget exhausted')
             try:
-                response = self.client.post(self.settings.base_url + '/chat/completions',
+                response = await self.client.post(self.settings.base_url + '/chat/completions',
                     headers={'Authorization': 'Bearer ' + self.settings.api_key},
                     json={'model': self.settings.model, 'messages': messages,
                           'temperature': self.settings.temperature, 'max_tokens': self.settings.max_tokens},
@@ -106,5 +143,5 @@ class ModelClient:
                 if attempt == 2:
                     raise ProviderError(f'Provider HTTP {response.status_code} after retries')
             delay = min(.5 * (2 ** attempt), max(0, deadline - time.monotonic()))
-            time.sleep(delay)
+            await asyncio.sleep(delay)
         raise ProviderError('Provider did not return an answer')
