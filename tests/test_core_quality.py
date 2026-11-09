@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 import httpx
 from consultant import Consultant, tidy
@@ -79,25 +80,29 @@ class CheckpointTests(unittest.TestCase):
                 archive.writestr('a.md', '# Альфа\nДатчики Альфа.\n# Бета\nБатареи Бета.')
             with (root / 'questions.csv').open('w', encoding='utf-8', newline='') as stream:
                 csv.writer(stream).writerows([('id', 'question'), ('1', 'Альфа?'), ('2', 'Бета?')])
-            gate, seen_in_file = threading.Event(), []
+            checkpointed, seen_in_file = threading.Event(), []
+            real_write = solution.write_submission
+            def observed_write(path, rows):
+                # Read only after the atomic replace finished, in the writer's own thread (no handle race on Windows).
+                real_write(path, rows)
+                answers = dict(rows)
+                if answers.get('1') == 'Ответ Альфа' and answers.get('2') == solution.UNAVAILABLE:
+                    seen_in_file.append(path.read_text(encoding='utf-8'))
+                    checkpointed.set()
             async def handler(request):
                 # Async: the client runs every request on one event loop, so waiting must not block it.
                 if 'Бета?' in request.content.decode('utf-8'):
                     deadline = time.monotonic() + 5
-                    while time.monotonic() < deadline and not gate.is_set():
-                        rows = (root / 'out.csv').read_text(encoding='utf-8') if (root / 'out.csv').exists() else ''
-                        if 'Ответ Альфа' in rows:
-                            seen_in_file.append(rows)
-                            break
-                        await asyncio.sleep(.02)
+                    while time.monotonic() < deadline and not checkpointed.is_set():
+                        await asyncio.sleep(.01)
                     return reply('Ответ Бета')
                 return reply('Ответ Альфа')
             settings = Settings('https://example.invalid/v1', 'test-only-key', 'test-model', workers=2)
             client = ModelClient(settings, transport=httpx.MockTransport(handler))
             try:
-                self.assertEqual(solution.run(root, root / 'out.csv', settings, client), 0)
+                with patch.object(solution, 'write_submission', observed_write):
+                    self.assertEqual(solution.run(root, root / 'out.csv', settings, client), 0)
             finally:
-                gate.set()
                 client.close()
             self.assertTrue(seen_in_file, 'first answer was not checkpointed while the second was pending')
             self.assertIn(solution.UNAVAILABLE, seen_in_file[0])  # the pending row still has a valid fallback
